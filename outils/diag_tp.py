@@ -111,15 +111,18 @@ def analyser(mt5, sym, pt, decalage, trade, rates):
 
 
 MARGES = [0.0, 0.2, 0.3, 0.5, 0.8, 1.0, 1.5]
-FRACTIONS_BE = [0.5, 0.6, 0.7, 0.8, 0.9]      # part du chemin vers le TP1 a partir de laquelle le stop passe au point mort
+FRACTIONS_BE = [0.5, 0.6, 0.7, 0.8, 0.9]      # part du chemin vers le TP1 a partir de laquelle on agit
 DECALAGE_BE = 0.2                              # le point mort verrouille +0,2 $ (couvre le spread)
+PART_PARTIEL = 0.5                             # part de la position encaissee au palier "partiel"
 
 
-def jouer(donnees, pt, marge=0.0, frac_be=None):
-    """Rejoue les trades sur les bougies M1. Renvoie (n_tp, n_sl, n_be, n_neutre, somme_R, liste des R de TP).
-    Ordre dans une meme minute : inconnu, hypothese PRUDENTE (SL, puis point mort, puis TP)."""
+def jouer(donnees, pt, marge=0.0, frac_be=None, frac_partiel=None):
+    """Rejoue les trades sur les bougies M1. Renvoie (n_tp, n_sl, n_be, n_neutre, liste des R, liste des R de TP).
+    Ordre dans une meme minute : inconnu, hypothese PRUDENTE (SL, puis point mort, puis TP).
+    frac_be : le stop passe au point mort apres X % du chemin. frac_partiel : on encaisse la moitie apres X % du
+    chemin et le reste continue vers le TP1 avec le stop d'origine."""
     n_tp = n_sl = n_be = n_ne = 0
-    somme_r, r1s = 0.0, []
+    rs, r1s = [], []
     for achat, pe, sl, tp, bougies in donnees:
         tpm = tp - marge if achat else tp + marge
         risque = abs(pe - sl)
@@ -127,47 +130,49 @@ def jouer(donnees, pt, marge=0.0, frac_be=None):
         if gain <= 0:
             n_ne += 1
             continue
-        declencheur = (pe + frac_be * gain) if (frac_be and achat) else (pe - frac_be * gain) if frac_be else None
+        frac = frac_be or frac_partiel
+        declencheur = None if not frac else ((pe + frac * gain) if achat else (pe - frac * gain))
         niveau_be = (pe + DECALAGE_BE) if achat else (pe - DECALAGE_BE)
         arme, issue = False, None
         for r in bougies:
             haut, bas, sp = float(r["high"]), float(r["low"]), float(r["spread"]) * pt
             sl_touche = bas <= sl if achat else haut + sp >= sl
-            if sl_touche and not arme:
+            if sl_touche and (frac_be is None or not arme):
                 issue = "sl"
                 break
-            if arme:
-                be_touche = bas <= niveau_be if achat else haut + sp >= niveau_be
-                if be_touche:
+            if arme and frac_be:
+                if (bas <= niveau_be) if achat else (haut + sp >= niveau_be):
                     issue = "be"
                     break
-            elif declencheur is not None and (haut >= declencheur if achat else bas <= declencheur):
+            elif declencheur is not None and not arme and (haut >= declencheur if achat else bas <= declencheur):
                 arme = True
-                be_touche = bas <= niveau_be if achat else haut + sp >= niveau_be
-                if be_touche:                    # declenchement et retour dans la meme minute : prudent
-                    issue = "be"
+                if frac_be and ((bas <= niveau_be) if achat else (haut + sp >= niveau_be)):
+                    issue = "be"                 # declenchement et retour dans la meme minute : prudent
                     break
             if (haut >= tpm) if achat else (bas <= tpm):
                 issue = "tp"
                 break
+        banque = (PART_PARTIEL * frac_partiel * gain / risque) if (frac_partiel and arme) else 0.0
+        reste = (1.0 - PART_PARTIEL) if (frac_partiel and arme) else 1.0
         if issue == "tp":
             n_tp += 1
-            somme_r += gain / risque
-            r1s.append(gain / risque)
+            r = banque + reste * gain / risque
+            rs.append(r)
+            r1s.append(r)
         elif issue == "sl":
             n_sl += 1
-            somme_r -= 1.0
+            rs.append(banque - reste)
         elif issue == "be":
             n_be += 1
-            somme_r += DECALAGE_BE / risque
+            rs.append(DECALAGE_BE / risque)
         else:
             n_ne += 1
-    return n_tp, n_sl, n_be, n_ne, somme_r, r1s
+    return n_tp, n_sl, n_be, n_ne, rs, r1s
 
 
 def simuler(trades, rates, pt, decalage):
-    """Rejoue chaque trade sur les bougies M1 : (1) avec un TP1 avance de quelques cents, (2) avec un stop
-    qui passe au point mort avant le TP1. Simplifie : TP1 contre SL seulement (ni partiels, ni TP2)."""
+    """Rejoue chaque trade sur les bougies M1 avec : (1) un TP1 avance de quelques cents, (2) un stop au point mort
+    avant le TP1, (3) un encaissement partiel avant le TP1. Simplifie : TP1 contre SL seulement (pas de TP2)."""
     donnees = []
     for tr in trades:
         l = tr["ligne"]
@@ -183,24 +188,31 @@ def simuler(trades, rates, pt, decalage):
     print(f"{len(donnees)} trades rejoues.\n")
 
     def ligne(titre, res):
-        n_tp, n_sl, n_be, n_ne, somme, r1s = res
-        decides = n_tp + n_sl + n_be
-        esp = somme / decides if decides else 0.0
-        r1 = sum(r1s) / len(r1s) if r1s else 0.0
+        n_tp, n_sl, n_be, n_ne, rs, r1s = res
+        decides = len(rs)
+        moy = sum(rs) / decides if decides else 0.0
+        var = sum((x - moy) ** 2 for x in rs) / (decides - 1) if decides > 1 else 0.0
+        se = (var / decides) ** 0.5 if decides else 0.0
         pct = 100.0 * n_tp / decides if decides else 0.0
-        print(f"{titre:<24}{n_tp:>8}{n_sl:>6}{n_be:>6}{n_ne:>8}{pct:>7.0f}%{r1:>9.2f}{esp:>+11.3f}")
+        print(f"{titre:<24}{n_tp:>6}{n_sl:>6}{n_be:>6}{n_ne:>8}{pct:>7.0f}%{moy:>+10.3f} +/-{se:.3f}")
 
-    entete = f"{'':<24}{'TP1':>8}{'SL':>6}{'BE':>6}{'neutre':>8}{'% TP1':>8}{'R du TP1':>9}{'esperance':>11}"
+    entete = f"{'':<24}{'TP1':>6}{'SL':>6}{'BE':>6}{'neutre':>8}{'% TP1':>8}{'esperance':>11} (+/- erreur type)"
     print("1) TP1 pris plus tot (le prix demande est avance de la marge)\n" + entete)
     for m in MARGES:
         ligne(f"marge {m:.1f} $", jouer(donnees, pt, marge=m))
-    print("\n2) Stop au point mort avant le TP1 (des que le prix a parcouru X % du chemin vers le TP1 ; "
+    print("\n2) Stop au point mort avant le TP1 (apres X % du chemin vers le TP1 ; "
           f"le stop passe a l'entree +{DECALAGE_BE:.1f} $)\n" + entete)
     ligne("sans point mort", jouer(donnees, pt))
     for f in FRACTIONS_BE:
         ligne(f"point mort a {int(f * 100)} %", jouer(donnees, pt, frac_be=f))
-    print("\nesperance = R moyen par trade decide (TP1 = +R du TP1, SL = -1, BE = petit gain). Echantillon court : tendance, "
-          "pas preuve. Hypothese prudente quand SL et point mort/TP tombent dans la meme minute.")
+    print(f"\n3) Encaissement partiel avant le TP1 ({int(PART_PARTIEL * 100)} % de la position encaissee apres X % du chemin, "
+          "le reste continue avec le stop d'origine)\n" + entete)
+    ligne("sans partiel", jouer(donnees, pt))
+    for f in FRACTIONS_BE:
+        ligne(f"partiel a {int(f * 100)} %", jouer(donnees, pt, frac_partiel=f))
+    print("\nesperance = R moyen par trade decide ; l'erreur type donne l'ordre de grandeur du hasard : un ecart plus petit "
+          "que cette erreur n'est PAS significatif. Echantillon court. Hypothese prudente quand SL et point mort/TP "
+          "tombent dans la meme minute.")
 
 
 def main():
