@@ -148,9 +148,12 @@ COMPTE_BAT = "@echo off\ncd /d %~dp0\n.venv\\Scripts\\python.exe compte_mt5.py\n
 PARAGRAPHE_COMPTE = """PLUSIEURS COMPTES MT5 ?
 -----------------------
 Le bot ne trade QUE sur le compte MT5 choisi (a l'installation : le compte connecte a ce moment-la).
-Pour changer : double-clique sur   compte.bat   et choisis le compte (le numero seulement, jamais de
-mot de passe). Si MT5 est connecte a un autre compte, le bot ne trade pas et attend.
-Les trades deja ouverts ne sont pas touches.
+Pour changer : ouvre "GIMALY Panneau", carte "COMPTE MT5 DU BOT" : tape le numero du compte puis
+"SE CONNECTER" (MetaTrader 5 se connecte tout seul, a condition que ce compte soit deja
+enregistre dans MT5 avec son mot de passe : le panneau ne demande jamais de mot de passe), ou clique sur
+"COMPTE ACTIF". Alternative : double-clique sur   compte.bat.
+Si MT5 est connecte a un autre compte, le bot ne trade pas et attend. Impossible de changer de compte
+tant qu'un trade est ouvert. Seuls les comptes DEMO sont acceptes.
 
 
 """
@@ -197,6 +200,147 @@ def poser_compte_trading(chemin):
     texte = une_fois(texte, TRADING_CTRL_ANCIEN, TRADING_CTRL_NOUVEAU, "trading.py (controle)")
     chemin.write_text(texte, encoding="utf-8", newline="")
     print("  compte MT5 choisi : trading.py : OK")
+
+
+# ---------------------------------------------------------------------------------------------
+# Panneau : carte « COMPTE MT5 DU BOT » (saisir un numero, se connecter, ou prendre le compte actif)
+# ---------------------------------------------------------------------------------------------
+PANNEAU_FONCTIONS = r'''VERROU_MT5 = threading.Lock()      # un seul acces MT5 a la fois (lecture periodique / changement de compte)
+
+
+def compte_voulu():
+    """Numero du compte reserve au bot (config.local.yaml), 0 = aucun choix."""
+    try:
+        m = re.search(r"(?m)^trading_mt5_compte:[ \t]*(\d+)", CONFIG.read_text(encoding="utf-8-sig"))
+    except OSError:
+        return 0
+    return int(m.group(1)) if m else 0
+
+
+def ecrire_compte(valeur):
+    texte = CONFIG.read_text(encoding="utf-8-sig")
+    motif = re.compile(r"(?m)^trading_mt5_compte:[ \t]*[^#\n]*?([ \t]*#.*)?$")
+    ligne = "trading_mt5_compte: %s" % valeur
+    if motif.search(texte):
+        texte = motif.sub(lambda m: ligne + (m.group(1) or ""), texte, count=1)
+    else:
+        texte = (texte.rstrip("\n") + "\n\n# compte MT5 sur lequel le bot a le droit de trader (0 = celui qui est actif)\n"
+                 + ligne + "\n")
+    CONFIG.write_text(texte, encoding="utf-8", newline="")
+
+
+def choisir_compte(numero=None):
+    """numero=None : le bot est reserve au compte actif de MT5. Sinon MetaTrader 5 se connecte a ce compte
+    (mot de passe deja enregistre dans MT5 : il n'est JAMAIS demande ici) puis le bot lui est reserve.
+    Seuls les comptes DEMO sont acceptes. Renvoie le message a afficher."""
+    try:
+        import MetaTrader5 as mt5
+    except ImportError:
+        return "MetaTrader5 n'est pas installe."
+    with VERROU_MT5:
+        if not mt5.initialize():
+            return "MetaTrader 5 est injoignable : ouvre-le d'abord."
+        try:
+            avant = mt5.account_info()
+            if numero is None:
+                if avant is None:
+                    return "Aucun compte n'est connecte dans MetaTrader 5."
+                numero = avant.login
+            if avant is None or avant.login != numero:
+                if (mt5.positions_total() or 0) > 0:
+                    return ("Un trade est encore ouvert sur le compte actuel : attends qu'il soit termine "
+                            "avant de changer de compte.")
+                if not mt5.login(numero):
+                    return (f"MetaTrader 5 n'a pas pu se connecter au compte {numero}. Il faut qu'il soit deja "
+                            "enregistre dans MetaTrader 5 (Fichier > Se connecter au compte de trading, "
+                            "avec 'Enregistrer le mot de passe'). Rien n'a ete change.")
+            info = mt5.account_info()
+            if info is None or info.login != numero:
+                return "MetaTrader 5 n'est pas sur ce compte. Rien n'a ete change."
+            if info.trade_mode != 0:
+                if avant is not None and avant.login != numero:
+                    mt5.login(avant.login)          # on remet le compte d'avant
+                return f"Le compte {numero} n'est pas un compte DEMO : refuse. Rien n'a ete change."
+            ecrire_compte(numero)
+            return f"Le bot est reserve au compte {numero} ({info.server}). MetaTrader 5 y est connecte."
+        except Exception as exc:
+            return f"Changement de compte impossible : {exc}"
+        finally:
+            mt5.shutdown()
+
+
+'''
+
+PANNEAU_CARTE = r'''    cadre = tk.Frame(fen, bg=carte, padx=16, pady=10)
+    cadre.pack(fill="x", padx=14, pady=4)
+    label(cadre, 9, couleur=doux, text="COMPTE MT5 DU BOT").pack(anchor="w")
+    reserve = label(cadre, 10, text="", justify="left", wraplength=500)
+    reserve.pack(anchor="w", pady=(4, 6))
+    ligne_compte = tk.Frame(cadre, bg=carte)
+    ligne_compte.pack(fill="x")
+    saisie = tk.Entry(ligne_compte, font=("Segoe UI", 11), width=13, bg=fond, fg=texte, insertbackground=texte,
+                      relief="flat")
+    saisie.pack(side="left", padx=(0, 6), ipady=5)
+
+    def lancer_choix(numero):
+        message.config(text="Changement de compte en cours...")
+        resultat = []                                   # le fil secondaire n'appelle jamais Tk
+
+        def tache():
+            resultat.append(choisir_compte(numero))
+
+        def attendre():
+            if resultat:
+                message.config(text=resultat[0])
+                rafraichir(False)
+            else:
+                fen.after(200, attendre)
+        threading.Thread(target=tache, daemon=True).start()
+        fen.after(200, attendre)
+
+    def se_connecter():
+        numero = re.sub(r"\s", "", saisie.get())
+        if not re.fullmatch(r"\d{4,12}", numero):
+            message.config(text="Tape le numero du compte MT5 (chiffres seulement).")
+            return
+        lancer_choix(int(numero))
+
+    for texte_b, commande, couleur_b in (("SE CONNECTER", se_connecter, "#4aa8ff"),
+                                         ("COMPTE ACTIF", lambda: lancer_choix(None), "#8a96a3")):
+        tk.Button(ligne_compte, text=texte_b, command=commande, bg=couleur_b, fg="#0b1118", relief="flat",
+                  font=("Segoe UI", 9, "bold"), padx=8, pady=5, activebackground=couleur_b,
+                  cursor="hand2").pack(side="left", padx=3)
+
+'''
+
+PANNEAU_RAFRAICHIR = r'''        voulu = compte_voulu()
+        if not voulu:
+            reserve.config(text="Aucun compte choisi : le bot prend le compte actif de MetaTrader 5.", fg=doux)
+        elif m.get("erreur"):
+            reserve.config(text=f"Compte reserve au bot : {voulu} (MetaTrader 5 n'est pas joignable).", fg="#f0a030")
+        elif m["login"] == voulu:
+            reserve.config(text=f"Le bot trade sur le compte {voulu}.", fg="#34d27b")
+        else:
+            reserve.config(text=f"MetaTrader 5 est sur le compte {m['login']} : le bot ATTEND le compte {voulu} "
+                                "(clique sur SE CONNECTER).", fg="#f0a030")
+'''
+
+PANNEAU_REMPLACEMENTS = (
+    ("def boucle_mt5():\n", PANNEAU_FONCTIONS + "def boucle_mt5():\n", "panneau (fonctions)"),
+    ("        mt5_etat = lire_mt5()\n        time.sleep(6)\n",
+     "        with VERROU_MT5:\n            mt5_etat = lire_mt5()\n        time.sleep(6)\n", "panneau (verrou)"),
+    ("    barre = tk.Frame(fen, bg=fond)\n", PANNEAU_CARTE + "    barre = tk.Frame(fen, bg=fond)\n", "panneau (carte)"),
+    ("        finis, ouverts, derniers = trades_du_jour()\n",
+     PANNEAU_RAFRAICHIR + "        finis, ouverts, derniers = trades_du_jour()\n", "panneau (etat)"),
+    ('    fen.geometry("560x620")\n    fen.minsize(520, 560)\n',
+     '    fen.geometry("560x760")\n    fen.minsize(520, 700)\n', "panneau (taille)"),
+)
+
+
+def poser_panneau(texte):
+    for ancien, nouveau, nom in PANNEAU_REMPLACEMENTS:
+        texte = une_fois(texte, ancien, nouveau, nom)
+    return texte
 
 
 class _FiltreMotifs:
@@ -249,6 +393,7 @@ def preparer():
     F["assistant_installation.py"] = une_fois(F["assistant_installation.py"], ASSIST_ANCIEN, ASSIST_NOUVEAU,
                                               "assistant_installation.py")
     F["compte_mt5.py"] = COMPTE_PY
+    F["panneau.py"] = poser_panneau(F["panneau.py"])
     F["compte.bat"] = COMPTE_BAT
     F["lancer.py"] = (OUTILS / "lancer.py").read_text(encoding="utf-8")
     F["maj_auto.py"] = (RACINE / "maj_auto.py").read_text(encoding="utf-8")
