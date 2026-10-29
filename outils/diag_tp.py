@@ -1,78 +1,166 @@
 # -*- coding: utf-8 -*-
-"""Diagnostic : le prix a-t-il VRAIMENT touche le TP (ou le SL) d'un trade, et a combien pres ?
+"""Diagnostic des TP rates : sur tes trades passes, le prix a-t-il VRAIMENT touche le TP, et a combien pres ?
 
-Usage (depuis C:\\Users\\<toi>\\gimaly, MT5 ouvert) :
-  .\\.venv\\Scripts\\python.exe diag_tp.py achat 16:22 17:09 4030.27 4016.99
-                                         sens  debut fin  TP      SL        (heures de ton PC, aujourd'hui)
+Usage (depuis C:\\Users\\<toi>\\gimaly, MetaTrader 5 ouvert) :
+  .\\.venv\\Scripts\\python.exe diag_tp.py --jours 7            tous les trades des 7 derniers jours dont le TP1 n'a pas ete atteint
+  .\\.venv\\Scripts\\python.exe diag_tp.py "28/10/2026 11:56"    un trade precis (date et heure d'ouverture)
 
-Lit les bougies M1 de MetaTrader 5 (prix bid, comme le graphique) entre le debut et la fin du trade et dit :
-  * le plus haut / le plus bas atteint et sa distance au TP et au SL ;
-  * pour une VENTE, le meme calcul a l'ask (prix reel de fermeture), avec le spread de la bougie ;
-  * le spread maximal rencontre. Rien n'est modifie.
+Pour chaque trade, il lit les bougies M1 de MT5 (prix bid, comme le graphique) entre l'ouverture et la
+fermeture et dit : meilleur prix atteint, distance au TP1, et pour une VENTE la meme mesure a l'ask (prix
+reel de fermeture d'une vente). Rien n'est modifie. Les heures sont celles de ton PC.
+Option : --decalage 2   (heures entre UTC et l'heure du serveur MT5, seulement si le programme le demande).
 """
+import csv
 import datetime as dt
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path.cwd()))
+FICHIER = Path.home() / "GIMALY" / "trading" / "trades_bot.csv"
+
+
+def nombre(x):
+    try:
+        return float(str(x).replace(",", ".").strip())
+    except ValueError:
+        return None
+
+
+def horodatage(date, heure):
+    return dt.datetime.strptime(f"{date.strip()} {heure.strip()}", "%d/%m/%Y %H:%M:%S")
+
+
+def lire_trades():
+    """Apparie chaque ligne de resultat avec la ligne 'ouvert' correspondante."""
+    with open(FICHIER, encoding="utf-8-sig", newline="") as f:
+        lignes = list(csv.DictReader(f, delimiter=";"))
+    ouverts, trades = [], []
+    for l in lignes:
+        try:
+            t = horodatage(l["date"], l["heure"])
+        except (ValueError, KeyError):
+            continue
+        cle = (l.get("sens"), nombre(l.get("pe")), nombre(l.get("sl")), nombre(l.get("tp1")))
+        if (l.get("resultat") or "").strip().lower() == "ouvert":
+            ouverts.append((cle, t, l))
+            continue
+        for i in range(len(ouverts) - 1, -1, -1):
+            if ouverts[i][0] == cle and ouverts[i][1] <= t:
+                _, t0, l0 = ouverts.pop(i)
+                trades.append({"ouverture": t0, "fermeture": t, "ligne": l})
+                break
+    return trades
+
+
+def decalage_serveur(mt5, sym, force):
+    """Heures entre UTC et le temps du serveur MT5 (deduit du dernier tick, ou impose avec --decalage)."""
+    if force is not None:
+        return force * 3600
+    tick = mt5.symbol_info_tick(sym)
+    ecart = float(tick.time) - time.time()
+    heures = round(ecart / 3600)
+    if abs(ecart - heures * 3600) > 600 or abs(heures) > 12:
+        sys.exit("Impossible de deduire l'heure du serveur MT5 (marche ferme ?). Relance avec --decalage 2 "
+                 "(ou 3 en heure d'ete) : c'est l'ecart en heures entre UTC et l'heure affichee par MT5.")
+    return heures * 3600
+
+
+def analyser(mt5, sym, pt, decalage, trade):
+    ligne = trade["ligne"]
+    achat = ligne["sens"] == "achat"
+    tp = nombre(ligne["tp1"])
+    # heure locale du PC -> epoch UTC -> heure du serveur
+    a = trade["ouverture"].timestamp() + decalage
+    b = trade["fermeture"].timestamp() + decalage + 60
+    d0 = dt.datetime.fromtimestamp(a - decalage, dt.timezone.utc)
+    d1 = dt.datetime.fromtimestamp(b - decalage, dt.timezone.utc)
+    rates = mt5.copy_rates_range(sym, mt5.TIMEFRAME_M1, d0, d1)
+    if rates is None or len(rates) == 0:
+        return None
+    fen = [r for r in rates if a - 60 <= float(r["time"]) <= b]
+    if not fen:
+        return None
+    sp_max = max(float(r["spread"]) for r in fen) * pt
+    if achat:
+        meilleur = max(float(r["high"]) for r in fen)
+        manque = tp - meilleur
+        verdict = "TOUCHE au bid (a verifier)" if manque <= 0 else f"manque {manque:.2f} $"
+        return meilleur, manque, None, sp_max, verdict
+    meilleur = min(float(r["low"]) for r in fen)
+    meilleur_ask = min(float(r["low"]) + float(r["spread"]) * pt for r in fen)
+    manque, manque_ask = meilleur - tp, meilleur_ask - tp
+    if manque_ask <= 0:
+        verdict = "TOUCHE (bid et ask)"
+    elif manque <= 0:
+        verdict = f"SPREAD : touche au graphique, rate de {manque_ask:.2f} $ a l'ask"
+    else:
+        verdict = f"manque {manque:.2f} $"
+    return meilleur, manque, manque_ask, sp_max, verdict
 
 
 def main():
-    if len(sys.argv) != 6:
+    args = sys.argv[1:]
+    force = None
+    if "--decalage" in args:
+        i = args.index("--decalage")
+        force = float(args[i + 1])
+        del args[i:i + 2]
+    if not args or args[0] in ("-h", "--help"):
         sys.exit(__doc__)
-    sens, debut, fin, tp, sl = sys.argv[1].lower(), sys.argv[2], sys.argv[3], float(sys.argv[4]), float(sys.argv[5])
-    if sens not in ("achat", "vente"):
-        sys.exit("le sens doit etre achat ou vente")
+    if not FICHIER.exists():
+        sys.exit(f"{FICHIER} introuvable")
+    trades = lire_trades()
+    if args[0] == "--jours":
+        n = int(args[1]) if len(args) > 1 else 7
+        limite = dt.datetime.now() - dt.timedelta(days=n)
+        choisis = [t for t in trades if t["ouverture"] >= limite and (t["ligne"].get("tp1_atteint") or "").strip().lower() != "oui"]
+    else:
+        voulu = args[0].strip()
+        choisis = [t for t in trades if t["ouverture"].strftime("%d/%m/%Y %H:%M").startswith(voulu[:16])]
+        if not choisis:
+            sys.exit(f"aucun trade termine ouvert a '{voulu}' dans trades_bot.csv")
+    if not choisis:
+        sys.exit("aucun trade a analyser sur cette periode")
+
     import MetaTrader5 as mt5
     if not mt5.initialize():
         sys.exit("MetaTrader 5 introuvable : ouvre-le et connecte-toi")
     try:
-        from gimaly.trading.symbole import symbole_or
-        sym = symbole_or()
-    except Exception:  # noqa: BLE001
-        sym = "XAUUSD"
-    mt5.symbol_select(sym, True)
-    info = mt5.symbol_info(sym)
-    tick = mt5.symbol_info_tick(sym)
-    maintenant = dt.datetime.now()
-    h = lambda s: maintenant.replace(hour=int(s.split(":")[0]), minute=int(s.split(":")[1]), second=0, microsecond=0)
-    d0, d1 = h(debut), h(fin)
-    # heure du serveur MT5 = heure du dernier tick ; on en deduit le decalage sans supposer de fuseau
-    srv = lambda local: float(tick.time) - (maintenant - local).total_seconds()
-    t0, t1 = srv(d0) - 60, srv(d1) + 60
-    rates = mt5.copy_rates_from_pos(sym, mt5.TIMEFRAME_M1, 0, 1500)
-    if rates is None or len(rates) == 0:
-        sys.exit("aucune bougie M1 recue")
-    fen = [r for r in rates if t0 <= r["time"] <= t1]
-    if not fen:
-        sys.exit("aucune bougie dans cette fenetre : verifie les heures (heure de ton PC, aujourd'hui)")
-    pt = info.point if info else 0.01
-    local = lambda t: (maintenant - dt.timedelta(seconds=float(tick.time) - float(t))).strftime("%H:%M")
-    hi = max(fen, key=lambda r: r["high"]); lo = min(fen, key=lambda r: r["low"])
-    pt = float(pt)
-    sp_max = float(max(r["spread"] for r in fen)) * pt
-    print(f"\nSymbole {sym} - {sens} - {len(fen)} bougies M1 entre {debut} et {fin}")
-    print(f"TP {tp:.2f}   SL {sl:.2f}   spread maximal rencontre : {sp_max:.2f} $\n")
-    print(f"Plus haut  (bid) : {hi['high']:.2f} a {local(hi['time'])}   -> {hi['high'] - tp:+.2f} $ par rapport au TP, {hi['high'] - sl:+.2f} $ par rapport au SL")
-    print(f"Plus bas   (bid) : {lo['low']:.2f} a {local(lo['time'])}   -> {lo['low'] - tp:+.2f} $ par rapport au TP, {lo['low'] - sl:+.2f} $ par rapport au SL")
-    if sens == "achat":
-        verdict = "TP TOUCHE au bid (il aurait du se declencher)" if hi["high"] >= tp else f"TP NON touche : il a manque de {tp - hi['high']:.2f} $"
-        print(f"\nAchat : fermeture au BID. {verdict}")
-        sl_touche = lo["low"] <= sl
-        print(f"SL {'touche' if sl_touche else 'non touche'} au bid (plus bas {lo['low']:.2f}).")
-    else:
-        bas_ask = min(fen, key=lambda r: r["low"] + r["spread"] * pt)
-        ask = bas_ask["low"] + bas_ask["spread"] * pt
-        print(f"Plus bas   (ask) : {ask:.2f} a {local(bas_ask['time'])}   (bid {bas_ask['low']:.2f} + spread {bas_ask['spread'] * pt:.2f})")
-        if lo["low"] <= tp:
-            if ask <= tp:
-                print("\nVente : TP touche au bid ET a l'ask : il aurait du se declencher.")
+        try:
+            from gimaly.trading.symbole import symbole_or
+            sym = symbole_or()
+        except Exception:  # noqa: BLE001
+            sym = "XAUUSD"
+        mt5.symbol_select(sym, True)
+        info = mt5.symbol_info(sym)
+        pt = float(info.point) if info else 0.01
+        decalage = decalage_serveur(mt5, sym, force)
+        print(f"\n{sym} : {len(choisis)} trade(s) analyse(s) (bougies M1, prix bid ; ask approxime par bid + spread de la bougie)\n")
+        print(f"{'ouverture':<17}{'sens':<7}{'TP1':>9}{'meilleur':>10}{'manque':>8}{'manq.ask':>9}{'spr.max':>8}  {'resultat':<19}diagnostic")
+        resume = {"spread": 0, "touche": 0, "manque": 0, "inconnu": 0}
+        for t in choisis:
+            r = analyser(mt5, sym, pt, decalage, t)
+            l = t["ligne"]
+            tete = f"{t['ouverture']:%d/%m %H:%M:%S}  {l['sens']:<7}{nombre(l['tp1']):>9.2f}"
+            if r is None:
+                resume["inconnu"] += 1
+                print(f"{tete}  (pas de bougies M1 pour cette periode : historique MT5 trop court ?)")
+                continue
+            meilleur, manque, manque_ask, sp, verdict = r
+            if verdict.startswith("SPREAD"):
+                resume["spread"] += 1
+            elif verdict.startswith("TOUCHE"):
+                resume["touche"] += 1
             else:
-                print(f"\nVente : TP touche au BID (graphique) mais PAS a l'ASK : il a manque de {ask - tp:.2f} $ a cause du spread.")
-        else:
-            print(f"\nVente : TP non touche meme au bid : il a manque de {lo['low'] - tp:.2f} $.")
-    print("\n(Les bougies M1 donnent le plus haut/plus bas de chaque minute : une mèche de quelques secondes y figure.)")
-    mt5.shutdown()
+                resume["manque"] += 1
+            ma = f"{manque_ask:>9.2f}" if manque_ask is not None else f"{'':>9}"
+            print(f"{tete}{meilleur:>10.2f}{manque:>8.2f}{ma}{sp:>8.2f}  {(l.get('resultat') or ''):<19}{verdict}")
+        print(f"\nBilan : {resume['spread']} rate(s) a cause du spread ; {resume['touche']} trade(s) ou le TP1 a ete touche "
+              f"mais pas pris ; {resume['manque']} ou le prix n'est jamais arrive au TP1 ; {resume['inconnu']} sans donnees.")
+        print("manque = distance restante au TP1 (negatif ou 0 = atteint). Une vente se ferme a l'ask : manq.ask est la mesure reelle.")
+    finally:
+        mt5.shutdown()
 
 
 if __name__ == "__main__":
