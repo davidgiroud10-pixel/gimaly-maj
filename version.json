@@ -1,0 +1,12 @@
+{
+ "p": {
+  "numero": 1,
+  "version": "7.1",
+  "fichier": "maj-7.1.zip",
+  "quand": "demarrage",
+  "sha256": "ed30bdb84c20dc84b6d5643cacbf76936253824b48c07886edced453e48e692c",
+  "notes": "premiere version avec mises a jour automatiques",
+  "date": "2026-10-29 16:23"
+ },
+ "e": "f19c194a2898ec8595cf0ac1f0c1491996a3346314b7efdff8871dc2cca16c93f84403f1e2699da8ddfd72470664c403c37edf43f7eb986bef5be4136e2ea002"
+}
