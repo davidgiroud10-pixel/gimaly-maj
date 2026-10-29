@@ -111,13 +111,63 @@ def analyser(mt5, sym, pt, decalage, trade, rates):
 
 
 MARGES = [0.0, 0.2, 0.3, 0.5, 0.8, 1.0, 1.5]
+FRACTIONS_BE = [0.5, 0.6, 0.7, 0.8, 0.9]      # part du chemin vers le TP1 a partir de laquelle le stop passe au point mort
+DECALAGE_BE = 0.2                              # le point mort verrouille +0,2 $ (couvre le spread)
+
+
+def jouer(donnees, pt, marge=0.0, frac_be=None):
+    """Rejoue les trades sur les bougies M1. Renvoie (n_tp, n_sl, n_be, n_neutre, somme_R, liste des R de TP).
+    Ordre dans une meme minute : inconnu, hypothese PRUDENTE (SL, puis point mort, puis TP)."""
+    n_tp = n_sl = n_be = n_ne = 0
+    somme_r, r1s = 0.0, []
+    for achat, pe, sl, tp, bougies in donnees:
+        tpm = tp - marge if achat else tp + marge
+        risque = abs(pe - sl)
+        gain = (tpm - pe) if achat else (pe - tpm)
+        if gain <= 0:
+            n_ne += 1
+            continue
+        declencheur = (pe + frac_be * gain) if (frac_be and achat) else (pe - frac_be * gain) if frac_be else None
+        niveau_be = (pe + DECALAGE_BE) if achat else (pe - DECALAGE_BE)
+        arme, issue = False, None
+        for r in bougies:
+            haut, bas, sp = float(r["high"]), float(r["low"]), float(r["spread"]) * pt
+            sl_touche = bas <= sl if achat else haut + sp >= sl
+            if sl_touche and not arme:
+                issue = "sl"
+                break
+            if arme:
+                be_touche = bas <= niveau_be if achat else haut + sp >= niveau_be
+                if be_touche:
+                    issue = "be"
+                    break
+            elif declencheur is not None and (haut >= declencheur if achat else bas <= declencheur):
+                arme = True
+                be_touche = bas <= niveau_be if achat else haut + sp >= niveau_be
+                if be_touche:                    # declenchement et retour dans la meme minute : prudent
+                    issue = "be"
+                    break
+            if (haut >= tpm) if achat else (bas <= tpm):
+                issue = "tp"
+                break
+        if issue == "tp":
+            n_tp += 1
+            somme_r += gain / risque
+            r1s.append(gain / risque)
+        elif issue == "sl":
+            n_sl += 1
+            somme_r -= 1.0
+        elif issue == "be":
+            n_be += 1
+            somme_r += DECALAGE_BE / risque
+        else:
+            n_ne += 1
+    return n_tp, n_sl, n_be, n_ne, somme_r, r1s
 
 
 def simuler(trades, rates, pt, decalage):
-    """Rejoue chaque trade sur les bougies M1 avec un TP1 avance de `marge` dollars. Un trade est 'TP1' si le TP1
-    avance est touche avant le SL, 'SL' si le SL est touche d'abord (ou dans la meme minute : hypothese prudente),
-    sinon 'neutre' (sortie manuelle ou autre avant l'un et l'autre). Simplifie : TP1 contre SL seulement
-    (ni partiels, ni deplacement du SL, ni TP2)."""
+    """Rejoue chaque trade sur les bougies M1 : (1) avec un TP1 avance de quelques cents, (2) avec un stop
+    qui passe au point mort avant le TP1. Simplifie : TP1 contre SL seulement (ni partiels, ni TP2)."""
     donnees = []
     for tr in trades:
         l = tr["ligne"]
@@ -131,45 +181,26 @@ def simuler(trades, rates, pt, decalage):
         bougies = [r for r in rates if a <= float(r["time"]) <= b]
         donnees.append((achat, pe, sl, tp, bougies))
     print(f"{len(donnees)} trades rejoues.\n")
-    print(f"{'marge':>6}{'TP1 pris':>10}{'SL':>6}{'neutre':>8}{'% TP1':>8}{'R du TP1':>10}{'esperance':>11}")
-    for m in MARGES:
-        n_tp = n_sl = n_ne = 0
-        somme_r = 0.0
-        r1s = []
-        for achat, pe, sl, tp, bougies in donnees:
-            tpm = tp - m if achat else tp + m
-            risque = abs(pe - sl)
-            gain = (tpm - pe) if achat else (pe - tpm)
-            if gain <= 0:
-                n_ne += 1
-                continue
-            issue = None
-            for r in bougies:
-                haut, bas, sp = float(r["high"]), float(r["low"]), float(r["spread"]) * pt
-                sl_touche = bas <= sl if achat else haut + sp >= sl
-                tp_touche = haut >= tpm if achat else bas <= tpm
-                if sl_touche:
-                    issue = "sl"
-                    break
-                if tp_touche:
-                    issue = "tp"
-                    break
-            if issue == "tp":
-                n_tp += 1
-                somme_r += gain / risque
-                r1s.append(gain / risque)
-            elif issue == "sl":
-                n_sl += 1
-                somme_r -= 1.0
-            else:
-                n_ne += 1
-        decides = n_tp + n_sl
-        pct = 100.0 * n_tp / decides if decides else 0.0
+
+    def ligne(titre, res):
+        n_tp, n_sl, n_be, n_ne, somme, r1s = res
+        decides = n_tp + n_sl + n_be
+        esp = somme / decides if decides else 0.0
         r1 = sum(r1s) / len(r1s) if r1s else 0.0
-        esp = somme_r / decides if decides else 0.0
-        print(f"{m:>5.1f}${n_tp:>10}{n_sl:>6}{n_ne:>8}{pct:>7.0f}%{r1:>10.2f}{esp:>+11.3f}")
-    print("\nesperance = R moyen par trade decide (TP1 = +R du TP1, SL = -1). Echantillon court : a lire comme une tendance, "
-          "pas comme une preuve. Le prix reel d'un TP avance est aussi une decision de strategie (la ligue lit le graphique).")
+        pct = 100.0 * n_tp / decides if decides else 0.0
+        print(f"{titre:<24}{n_tp:>8}{n_sl:>6}{n_be:>6}{n_ne:>8}{pct:>7.0f}%{r1:>9.2f}{esp:>+11.3f}")
+
+    entete = f"{'':<24}{'TP1':>8}{'SL':>6}{'BE':>6}{'neutre':>8}{'% TP1':>8}{'R du TP1':>9}{'esperance':>11}"
+    print("1) TP1 pris plus tot (le prix demande est avance de la marge)\n" + entete)
+    for m in MARGES:
+        ligne(f"marge {m:.1f} $", jouer(donnees, pt, marge=m))
+    print("\n2) Stop au point mort avant le TP1 (des que le prix a parcouru X % du chemin vers le TP1 ; "
+          f"le stop passe a l'entree +{DECALAGE_BE:.1f} $)\n" + entete)
+    ligne("sans point mort", jouer(donnees, pt))
+    for f in FRACTIONS_BE:
+        ligne(f"point mort a {int(f * 100)} %", jouer(donnees, pt, frac_be=f))
+    print("\nesperance = R moyen par trade decide (TP1 = +R du TP1, SL = -1, BE = petit gain). Echantillon court : tendance, "
+          "pas preuve. Hypothese prudente quand SL et point mort/TP tombent dans la meme minute.")
 
 
 def main():
