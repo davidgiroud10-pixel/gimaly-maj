@@ -66,17 +66,27 @@ def decalage_serveur(mt5, sym, force):
     return heures * 3600
 
 
-def analyser(mt5, sym, pt, decalage, trade):
+def charger_bougies(mt5, sym, debut_srv, fin_srv):
+    """Toutes les bougies M1 entre deux heures SERVEUR (epoch). MT5 telecharge l'historique a la demande :
+    la premiere reponse peut etre vide, on redemande quelques fois."""
+    # MT5 compte les bougies en 'heure serveur lue comme UTC' : on lui passe donc directement l'heure serveur
+    d0 = dt.datetime.fromtimestamp(debut_srv, dt.timezone.utc)
+    d1 = dt.datetime.fromtimestamp(fin_srv, dt.timezone.utc)
+    for essai in range(5):
+        rates = mt5.copy_rates_range(sym, mt5.TIMEFRAME_M1, d0, d1)
+        if rates is not None and len(rates) > 0:
+            return rates
+        time.sleep(1.5)
+    return None
+
+
+def analyser(mt5, sym, pt, decalage, trade, rates):
     ligne = trade["ligne"]
     achat = ligne["sens"] == "achat"
     tp = nombre(ligne["tp1"])
-    # heure locale du PC -> epoch UTC -> heure du serveur
-    a = trade["ouverture"].timestamp() + decalage
+    a = trade["ouverture"].timestamp() + decalage          # heure locale du PC -> heure du serveur
     b = trade["fermeture"].timestamp() + decalage + 60
-    d0 = dt.datetime.fromtimestamp(a - decalage, dt.timezone.utc)
-    d1 = dt.datetime.fromtimestamp(b - decalage, dt.timezone.utc)
-    rates = mt5.copy_rates_range(sym, mt5.TIMEFRAME_M1, d0, d1)
-    if rates is None or len(rates) == 0:
+    if rates is None:
         return None
     fen = [r for r in rates if a - 60 <= float(r["time"]) <= b]
     if not fen:
@@ -137,15 +147,23 @@ def main():
         pt = float(info.point) if info else 0.01
         decalage = decalage_serveur(mt5, sym, force)
         print(f"\n{sym} : {len(choisis)} trade(s) analyse(s) (bougies M1, prix bid ; ask approxime par bid + spread de la bougie)\n")
+        debut = min(t["ouverture"] for t in choisis).timestamp() + decalage - 4 * 3600   # marge : on filtre ensuite
+        fin = max(t["fermeture"] for t in choisis).timestamp() + decalage + 4 * 3600
+        rates = charger_bougies(mt5, sym, debut, fin)
+        if rates is None:
+            sys.exit("MT5 ne fournit pas les bougies M1 de cette periode. Dans MT5 : ouvre un graphique " + sym +
+                     " en M1 et fais-le defiler vers la gauche jusqu'au debut de la periode (cela telecharge l'historique), "
+                     "puis relance.")
+        print(f"{len(rates)} bougies M1 chargees.\n")
         print(f"{'ouverture':<17}{'sens':<7}{'TP1':>9}{'meilleur':>10}{'manque':>8}{'manq.ask':>9}{'spr.max':>8}  {'resultat':<19}diagnostic")
         resume = {"spread": 0, "touche": 0, "manque": 0, "inconnu": 0}
         for t in choisis:
-            r = analyser(mt5, sym, pt, decalage, t)
+            r = analyser(mt5, sym, pt, decalage, t, rates)
             l = t["ligne"]
             tete = f"{t['ouverture']:%d/%m %H:%M:%S}  {l['sens']:<7}{nombre(l['tp1']):>9.2f}"
             if r is None:
                 resume["inconnu"] += 1
-                print(f"{tete}  (pas de bougies M1 pour cette periode : historique MT5 trop court ?)")
+                print(f"{tete}  (aucune bougie M1 entre ouverture et fermeture : historique incomplet ?)")
                 continue
             meilleur, manque, manque_ask, sp, verdict = r
             if verdict.startswith("SPREAD"):
