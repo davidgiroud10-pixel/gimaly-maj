@@ -4,6 +4,7 @@
 Usage (depuis C:\\Users\\<toi>\\gimaly, MetaTrader 5 ouvert) :
   .\\.venv\\Scripts\\python.exe diag_tp.py --jours 7            tous les trades des 7 derniers jours dont le TP1 n'a pas ete atteint
   .\\.venv\\Scripts\\python.exe diag_tp.py "28/10/2026 11:56"    un trade precis (date et heure d'ouverture)
+  .\\.venv\\Scripts\\python.exe diag_tp.py --simuler 7        et si le TP1 etait pris X cents plus tot ? (tous les trades, indicatif)
 
 Pour chaque trade, il lit les bougies M1 de MT5 (prix bid, comme le graphique) entre l'ouverture et la
 fermeture et dit : meilleur prix atteint, distance au TP1, et pour une VENTE la meme mesure a l'ask (prix
@@ -109,6 +110,68 @@ def analyser(mt5, sym, pt, decalage, trade, rates):
     return meilleur, manque, manque_ask, sp_max, verdict
 
 
+MARGES = [0.0, 0.2, 0.3, 0.5, 0.8, 1.0, 1.5]
+
+
+def simuler(trades, rates, pt, decalage):
+    """Rejoue chaque trade sur les bougies M1 avec un TP1 avance de `marge` dollars. Un trade est 'TP1' si le TP1
+    avance est touche avant le SL, 'SL' si le SL est touche d'abord (ou dans la meme minute : hypothese prudente),
+    sinon 'neutre' (sortie manuelle ou autre avant l'un et l'autre). Simplifie : TP1 contre SL seulement
+    (ni partiels, ni deplacement du SL, ni TP2)."""
+    donnees = []
+    for tr in trades:
+        l = tr["ligne"]
+        pe, sl, tp = nombre(l.get("pe")), nombre(l.get("sl")), nombre(l.get("tp1"))
+        if None in (pe, sl, tp) or pe == sl:
+            continue
+        achat = l["sens"] == "achat"
+        a = tr["ouverture"].timestamp() + decalage
+        a = (a // 60) * 60 + 60                          # on commence APRES la minute d'entree
+        b = tr["fermeture"].timestamp() + decalage + 60
+        bougies = [r for r in rates if a <= float(r["time"]) <= b]
+        donnees.append((achat, pe, sl, tp, bougies))
+    print(f"{len(donnees)} trades rejoues.\n")
+    print(f"{'marge':>6}{'TP1 pris':>10}{'SL':>6}{'neutre':>8}{'% TP1':>8}{'R du TP1':>10}{'esperance':>11}")
+    for m in MARGES:
+        n_tp = n_sl = n_ne = 0
+        somme_r = 0.0
+        r1s = []
+        for achat, pe, sl, tp, bougies in donnees:
+            tpm = tp - m if achat else tp + m
+            risque = abs(pe - sl)
+            gain = (tpm - pe) if achat else (pe - tpm)
+            if gain <= 0:
+                n_ne += 1
+                continue
+            issue = None
+            for r in bougies:
+                haut, bas, sp = float(r["high"]), float(r["low"]), float(r["spread"]) * pt
+                sl_touche = bas <= sl if achat else haut + sp >= sl
+                tp_touche = haut >= tpm if achat else bas <= tpm
+                if sl_touche:
+                    issue = "sl"
+                    break
+                if tp_touche:
+                    issue = "tp"
+                    break
+            if issue == "tp":
+                n_tp += 1
+                somme_r += gain / risque
+                r1s.append(gain / risque)
+            elif issue == "sl":
+                n_sl += 1
+                somme_r -= 1.0
+            else:
+                n_ne += 1
+        decides = n_tp + n_sl
+        pct = 100.0 * n_tp / decides if decides else 0.0
+        r1 = sum(r1s) / len(r1s) if r1s else 0.0
+        esp = somme_r / decides if decides else 0.0
+        print(f"{m:>5.1f}${n_tp:>10}{n_sl:>6}{n_ne:>8}{pct:>7.0f}%{r1:>10.2f}{esp:>+11.3f}")
+    print("\nesperance = R moyen par trade decide (TP1 = +R du TP1, SL = -1). Echantillon court : a lire comme une tendance, "
+          "pas comme une preuve. Le prix reel d'un TP avance est aussi une decision de strategie (la ligue lit le graphique).")
+
+
 def main():
     args = sys.argv[1:]
     force = None
@@ -121,7 +184,11 @@ def main():
     if not FICHIER.exists():
         sys.exit(f"{FICHIER} introuvable")
     trades = lire_trades()
-    if args[0] == "--jours":
+    if args[0] == "--simuler":
+        n = int(args[1]) if len(args) > 1 else 7
+        limite = dt.datetime.now() - dt.timedelta(days=n)
+        choisis = [t for t in trades if t["ouverture"] >= limite]
+    elif args[0] == "--jours":
         n = int(args[1]) if len(args) > 1 else 7
         limite = dt.datetime.now() - dt.timedelta(days=n)
         choisis = [t for t in trades if t["ouverture"] >= limite and (t["ligne"].get("tp1_atteint") or "").strip().lower() != "oui"]
@@ -155,6 +222,9 @@ def main():
                      " en M1 et fais-le defiler vers la gauche jusqu'au debut de la periode (cela telecharge l'historique), "
                      "puis relance.")
         print(f"{len(rates)} bougies M1 chargees.\n")
+        if args[0] == "--simuler":
+            simuler(choisis, rates, pt, decalage)
+            return
         print(f"{'ouverture':<17}{'sens':<7}{'TP1':>9}{'meilleur':>10}{'manque':>8}{'manq.ask':>9}{'spr.max':>8}  {'resultat':<19}diagnostic")
         resume = {"spread": 0, "touche": 0, "manque": 0, "inconnu": 0}
         for t in choisis:
