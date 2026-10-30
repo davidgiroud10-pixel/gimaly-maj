@@ -145,7 +145,14 @@ if __name__ == "__main__":
 
 COMPTE_BAT = "@echo off\ncd /d %~dp0\n.venv\\Scripts\\python.exe compte_mt5.py\n"
 
-PARAGRAPHE_COMPTE = """PLUSIEURS COMPTES MT5 ?
+PARAGRAPHE_COMPTE = """BILAN EN UN CLIC
+-----------------
+Dans "GIMALY Panneau", ligne BILAN : clique sur AUJOURD'HUI, SEMAINE, MOIS ou TOUT. Une fenetre affiche le
+bilan (trades, gagnants, resultat). Le bouton "COPIER LE BILAN" le copie : colle-le ensuite (Ctrl+V)
+dans un message pour l'envoyer a l'editeur. Il ne contient aucun identifiant de compte.
+
+
+PLUSIEURS COMPTES MT5 ?
 -----------------------
 Le bot ne trade QUE sur le compte MT5 choisi (a l'installation : le compte connecte a ce moment-la).
 Pour changer : ouvre "GIMALY Panneau", carte "COMPTE MT5 DU BOT" : tape le numero du compte puis
@@ -333,14 +340,146 @@ PANNEAU_REMPLACEMENTS = (
     ("        finis, ouverts, derniers = trades_du_jour()\n",
      PANNEAU_RAFRAICHIR + "        finis, ouverts, derniers = trades_du_jour()\n", "panneau (etat)"),
     ('    fen.geometry("560x620")\n    fen.minsize(520, 560)\n',
-     '    fen.geometry("560x760")\n    fen.minsize(520, 700)\n', "panneau (taille)"),
+     '    fen.geometry("560x820")\n    fen.minsize(520, 760)\n', "panneau (taille)"),
 )
 
 
 def poser_panneau(texte):
     for ancien, nouveau, nom in PANNEAU_REMPLACEMENTS:
         texte = une_fois(texte, ancien, nouveau, nom)
-    return texte
+    ancre = '    message.pack(fill="x", padx=18)\n'
+    return une_fois(texte, ancre, ancre + PANNEAU_BILAN, "panneau (bilan)")
+
+
+# ---------------------------------------------------------------------------------------------
+# Bilan simple : 4 boutons dans le panneau (Aujourd'hui / Semaine / Mois / Tout) + copie en un clic
+# ---------------------------------------------------------------------------------------------
+BILAN_SIMPLE_PY = r'''# -*- coding: utf-8 -*-
+"""Bilan simple et lisible, pret a etre colle dans un message (utilise par les boutons BILAN du panneau).
+
+  python bilan_simple.py [jour|semaine|mois|tout]
+
+Lit seulement trades_bot.csv : ne modifie rien, aucun identifiant de compte.
+"""
+import json
+import sys
+from datetime import datetime, timedelta
+from pathlib import Path
+
+RACINE = Path(__file__).resolve().parent
+NOMS = {"jour": "Aujourd'hui", "semaine": "Cette semaine", "mois": "Ce mois-ci", "tout": "Depuis le debut"}
+JOURS = ("lun", "mar", "mer", "jeu", "ven", "sam", "dim")
+
+
+def debut(periode, maintenant=None):
+    n = maintenant or datetime.now()
+    minuit = n.replace(hour=0, minute=0, second=0, microsecond=0)
+    if periode == "jour":
+        return minuit
+    if periode == "semaine":
+        return minuit - timedelta(days=minuit.weekday())
+    if periode == "mois":
+        return minuit.replace(day=1)
+    return datetime(2000, 1, 1)
+
+
+def version():
+    try:
+        return json.loads((RACINE / "VERSION.json").read_text(encoding="utf-8-sig")).get("version", "?")
+    except (OSError, ValueError):
+        return "?"
+
+
+def texte_bilan(periode="jour", maintenant=None):
+    n = maintenant or datetime.now()
+    d = debut(periode, n)
+    en_tete = f"BILAN GIMALY - {NOMS.get(periode, periode)}"
+    if periode != "jour" and periode != "tout":
+        en_tete += f" (depuis le {d:%d/%m/%Y})"
+    elif periode == "jour":
+        en_tete += f" ({d:%d/%m/%Y})"
+    lignes = [en_tete, f"Version {version()}", ""]
+    try:
+        import bilan_reel
+        trades = bilan_reel.charger(d)
+    except OSError:
+        lignes.append("Pas encore de trade : le bot n'a pas encore pris de position.")
+        return "\n".join(lignes)
+    finis = sorted((t for t in trades if t["R"] is not None), key=lambda t: t["ouv"])
+    ouverts = [t for t in trades if t["R"] is None]
+    if not finis:
+        lignes.append("Aucun trade termine sur cette periode.")
+        if ouverts:
+            lignes.append(f"{len(ouverts)} trade(s) en cours.")
+        return "\n".join(lignes)
+    rs = [t["R"] for t in finis]
+    gagnants = sum(r > 0 for r in rs)
+    gains = [t["gain"] for t in finis if t["gain"] is not None]
+    lignes.append(f"Trades termines : {len(finis)}  ({gagnants} gagnant(s) / {len(finis) - gagnants} perdant(s))")
+    lignes.append(f"Resultat : {sum(rs):+.2f} R" + (f"   |   {sum(gains):+.2f} en argent (devise du compte)" if gains else ""))
+    lignes.append(f"Moyenne par trade : {sum(rs) / len(rs):+.2f} R   |   taux de reussite : {gagnants / len(finis):.0%}")
+    hors = sum(bilan_reel.manuel(t) for t in finis)
+    if hors:
+        lignes.append(f"Sorties a la main ou anticipees : {hors}")
+    if ouverts:
+        lignes.append(f"En cours : {len(ouverts)} trade(s) ouvert(s)")
+    if periode in ("semaine", "mois", "tout"):
+        jours = {}
+        for t in finis:
+            jours.setdefault(t["ouv"].date(), []).append(t["R"])
+        lignes += ["", "Par jour :"]
+        for j in sorted(jours)[-31:]:
+            r = jours[j]
+            lignes.append(f"  {j:%d/%m} {JOURS[j.weekday()]}   {len(r):>2} trade(s)   {sum(r):+6.2f} R")
+    lignes += ["", "Detail des trades :" if len(finis) <= 15 else "15 derniers trades :"]
+    for t in finis[-15:]:
+        sens = "ACHAT" if str(t["sens"]).lower().startswith(("a", "b")) else "VENTE"
+        lignes.append(f"  {t['ouv']:%d/%m %H:%M}  {sens:<6}{str(t['res']):<20}{t['R']:>+6.2f} R")
+    return "\n".join(lignes)
+
+
+if __name__ == "__main__":
+    p = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] in NOMS else "jour"
+    print(texte_bilan(p))
+'''
+
+PANNEAU_BILAN = r'''    ligne_bilan = tk.Frame(fen, bg=fond)
+    ligne_bilan.pack(fill="x", padx=14, pady=(2, 0))
+    label(ligne_bilan, 9, couleur=doux, text="BILAN").pack(side="left", padx=(4, 8))
+
+    def montrer_bilan(periode, titre_p):
+        try:
+            import bilan_simple
+            contenu = bilan_simple.texte_bilan(periode)
+        except Exception as exc:
+            contenu = f"Bilan impossible : {exc}"
+        fb = tk.Toplevel(fen)
+        fb.title("Bilan GIMALY - " + titre_p)
+        fb.configure(bg=fond)
+        fb.geometry("560x540")
+        zone = tk.Text(fb, bg=carte, fg=texte, font=("Consolas", 10), relief="flat", wrap="word", padx=12, pady=10)
+        zone.insert("1.0", contenu)
+        zone.config(state="disabled")
+        zone.pack(fill="both", expand=True, padx=12, pady=(12, 6))
+        retour_copie = label(fb, 10, couleur=doux, text="")
+
+        def copier():
+            fb.clipboard_clear()
+            fb.clipboard_append(contenu)
+            fb.update()
+            retour_copie.config(text="Copie ! Colle-le dans le sujet du canal (Ctrl+V).", fg="#34d27b")
+        tk.Button(fb, text="COPIER LE BILAN", command=copier, bg="#34d27b", fg="#0b1118", relief="flat",
+                  font=("Segoe UI", 10, "bold"), padx=10, pady=8, activebackground="#34d27b",
+                  cursor="hand2").pack(fill="x", padx=12, pady=(0, 4))
+        retour_copie.pack(pady=(0, 10))
+
+    for titre_p, periode in (("AUJOURD'HUI", "jour"), ("SEMAINE", "semaine"), ("MOIS", "mois"), ("TOUT", "tout")):
+        tk.Button(ligne_bilan, text=titre_p, command=lambda p=periode, t=titre_p: montrer_bilan(p, t),
+                  bg="#2a3b4d", fg=texte, relief="flat", font=("Segoe UI", 9, "bold"), padx=6, pady=5,
+                  activebackground="#2a3b4d", activeforeground=texte, cursor="hand2").pack(
+                      side="left", expand=True, fill="x", padx=3)
+
+'''
 
 
 class _FiltreMotifs:
@@ -393,6 +532,7 @@ def preparer():
     F["assistant_installation.py"] = une_fois(F["assistant_installation.py"], ASSIST_ANCIEN, ASSIST_NOUVEAU,
                                               "assistant_installation.py")
     F["compte_mt5.py"] = COMPTE_PY
+    F["bilan_simple.py"] = BILAN_SIMPLE_PY
     F["panneau.py"] = poser_panneau(F["panneau.py"])
     F["compte.bat"] = COMPTE_BAT
     F["lancer.py"] = (OUTILS / "lancer.py").read_text(encoding="utf-8")
