@@ -1,12 +1,12 @@
 {
  "p": {
-  "numero": 2,
-  "version": "7.2",
-  "fichier": "maj-7.2.zip",
-  "quand": "week-end",
-  "sha256": "3ac8b5a7b90ae7103d139e4d6ed2c4d6b85a3c6ebfd4cd543c920ae5de010a57",
-  "notes": "Choix du compte MT5 dans le panneau",
-  "date": "2026-10-30 08:48"
+  "numero": 4,
+  "version": "7.4",
+  "fichier": "maj-7.4.zip",
+  "quand": "demarrage",
+  "sha256": "9dd4bfd198ec2e90b3afc3663dcfefba3d6e3c5bc2237705d0978238901fa623",
+  "notes": "Boutons BILAN jour/semaine/mois/tout dans le panneau",
+  "date": "2026-10-30 09:01"
  },
- "e": "64d0429cf593a6570ef51a6a8ace6b048eff63d547e75088eb6441f210bf50e40c3d401c1295c095577424bffc328c658c2c252623300a67f340f4ccd8d84609"
+ "e": "c3240fc24cff65c077a716d7ad372fc6a01fb2dfbe9f3f8d103be95bc42403bbea8b044ccabc4abc02c6b003dc84dc0504b7b8f00e9c035694473dd636b1d70a"
 }
