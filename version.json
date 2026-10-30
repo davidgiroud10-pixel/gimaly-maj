@@ -1,12 +1,12 @@
 {
  "p": {
-  "numero": 1,
-  "version": "7.1",
-  "fichier": "maj-7.1.zip",
-  "quand": "demarrage",
-  "sha256": "ed30bdb84c20dc84b6d5643cacbf76936253824b48c07886edced453e48e692c",
-  "notes": "premiere version avec mises a jour automatiques",
-  "date": "2026-10-29 16:23"
+  "numero": 2,
+  "version": "7.2",
+  "fichier": "maj-7.2.zip",
+  "quand": "week-end",
+  "sha256": "3ac8b5a7b90ae7103d139e4d6ed2c4d6b85a3c6ebfd4cd543c920ae5de010a57",
+  "notes": "Choix du compte MT5 dans le panneau",
+  "date": "2026-10-30 08:48"
  },
- "e": "f19c194a2898ec8595cf0ac1f0c1491996a3346314b7efdff8871dc2cca16c93f84403f1e2699da8ddfd72470664c403c37edf43f7eb986bef5be4136e2ea002"
+ "e": "64d0429cf593a6570ef51a6a8ace6b048eff63d547e75088eb6441f210bf50e40c3d401c1295c095577424bffc328c658c2c252623300a67f340f4ccd8d84609"
 }
