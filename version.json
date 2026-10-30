@@ -1,12 +1,12 @@
 {
  "p": {
-  "numero": 4,
-  "version": "7.4",
-  "fichier": "maj-7.4.zip",
-  "quand": "demarrage",
-  "sha256": "9dd4bfd198ec2e90b3afc3663dcfefba3d6e3c5bc2237705d0978238901fa623",
-  "notes": "Boutons BILAN jour/semaine/mois/tout dans le panneau",
-  "date": "2026-10-30 09:01"
+  "numero": 5,
+  "version": "7.5",
+  "fichier": "maj-7.5.zip",
+  "quand": "week-end",
+  "sha256": "d7aae6997db3a4fb0c4ac7466188bc6792d4a917ac7d456283b3088b1b51becd",
+  "notes": "TP sur le niveau du marche le plus proche, R et message de fin de trade calcules sur le risque reel",
+  "date": "2026-10-30 13:13"
  },
- "e": "c3240fc24cff65c077a716d7ad372fc6a01fb2dfbe9f3f8d103be95bc42403bbea8b044ccabc4abc02c6b003dc84dc0504b7b8f00e9c035694473dd636b1d70a"
+ "e": "f9d139facfbafe55cdde4ee2e4d1a0510843fa749576965d03dac1ec7d22c3ceb859f4d1d1f2187d0fc8ed63afcc66c633f74782c3db0d7e1d3c963a90e2900b"
 }
