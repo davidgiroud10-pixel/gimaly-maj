@@ -5,6 +5,8 @@ c'est-a-dire  lot x distance du stop x valeur du point  (la meme valeur que cell
 Avant : R = gain / (risque% x solde). Faux des que le lot est plafonne (lots_max) ou au lot minimum : un stop
 touche pouvait s'afficher -0,3 R au lieu de -1 R. Si MT5 ne repond pas, l'ancienne formule sert de secours.
 
+Le message de fin de trade ("reel sur le compte") utilise la meme valeur.
+
 Les lignes DEJA ecrites ne sont pas modifiees (diag_tendance.py recalcule le R en argent).
 
 A lancer sur TON PC, depuis le dossier gimaly (sauvegarde trading.py.avant_calcul_r, idempotent) :
@@ -22,6 +24,9 @@ R_ANCIEN = '''            "R": round(gain / (self.reglages["risque"] / 100 * max
 '''
 R_NOUVEAU = '''            "R": round(gain / self._risque_pris(trade), 2) if gain else "",
 '''
+
+TEXTE_ANCIEN = "        reel = gain / (risque / 100 * max(self.capital(), 1)) if gain and risque else None\n"
+TEXTE_NOUVEAU = "        reel = gain / self._risque_pris(trade) if gain and risque else None\n"
 
 METHODE_ANCIEN = "    def _journal(self, trade, resultat, gain=0.0):\n"
 METHODE_NOUVEAU = '''    def _risque_pris(self, trade):
@@ -51,13 +56,15 @@ def main():
     if not CIBLE.exists():
         raise SystemExit(f"{CIBLE} introuvable : lance ce script depuis le dossier gimaly")
     brut = CIBLE.read_bytes().decode("utf-8")
-    if "_risque_pris" in brut:
-        print("Deja applique : rien a faire.")
-        return
     crlf = "\r\n" in brut
     texte = brut.replace("\r\n", "\n")
-    texte = une_fois(texte, R_ANCIEN, R_NOUVEAU, "calcul du R")
-    texte = une_fois(texte, METHODE_ANCIEN, METHODE_NOUVEAU, "methode")
+    if "def _risque_pris" in texte and TEXTE_ANCIEN not in texte:
+        print("Deja applique : rien a faire.")
+        return
+    if "def _risque_pris" not in texte:
+        texte = une_fois(texte, R_ANCIEN, R_NOUVEAU, "calcul du R")
+        texte = une_fois(texte, METHODE_ANCIEN, METHODE_NOUVEAU, "methode")
+    texte = une_fois(texte, TEXTE_ANCIEN, TEXTE_NOUVEAU, "message de fin de trade")
     compile(texte.lstrip("﻿"), str(CIBLE), "exec")
     if crlf:
         texte = texte.replace("\n", "\r\n")
