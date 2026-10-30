@@ -80,8 +80,9 @@ def main():
         cible, sujets, methode, erreur = lire(config)
     except Exception as exc:  # noqa: BLE001
         texte = repr(exc)
-        if "lock" in texte.lower():
-            sys.exit("La session Telegram est utilisee par GIMALY : ferme GIMALY puis relance cette commande.")
+        if "database is locked" in texte.lower():
+            sys.exit("La session Telegram est utilisee par GIMALY (base verrouillee) : ferme GIMALY "
+                     f"completement puis relance cette commande.\nErreur : {texte}")
         sys.exit(f"Lecture des sujets impossible : {texte}")
     if erreur:
         print(f"(la requete des sujets a echoue : {erreur})")
