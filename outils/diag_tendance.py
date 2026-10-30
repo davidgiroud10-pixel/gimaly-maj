@@ -11,6 +11,10 @@ Pour chaque trade termine de trades_bot.csv, il retrouve la tendance H1 AU MOMEN
 regle que ton detecteur (EMA 20 au-dessus / au-dessous de l'EMA 50 ET qui monte / descend depuis 3 h, sur des
 bougies H1 CLOSES avant l'ouverture), puis compare « avec », « contre » et « mixte ». Rien n'est modifie.
 Les heures de trades_bot.csv sont celles de ton PC.
+
+R EN ARGENT : la colonne R du fichier est fausse quand le lot a ete plafonne (ex. -0,3 R pour un stop touche).
+Ici le R est recalcule : gain / (lot x distance du stop x valeur du point), la valeur du point (conversion
+dollar -> devise du compte) etant calibree sur tes stops propres (R du fichier <= -0,98). Rien n'est modifie.
 """
 import bisect
 import csv
@@ -42,13 +46,40 @@ def lire_trades(genre):
         except (ValueError, KeyError):
             continue
         d = par_id.setdefault(l.get("message_id"), {"genre": l.get("genre", ""), "sens": l.get("sens", ""),
-                                                     "ouverture": t, "R": None, "gain": None})
+                                                     "ouverture": t, "R": None, "gain": None, "R_fichier": None,
+                                                     "volume": None, "pe": None, "sl": None})
         if (l.get("resultat") or "").strip().lower() != "ouvert":
-            d["R"], d["gain"] = nombre(l.get("R")), nombre(l.get("gain_devise"))
-    trades = [d for d in par_id.values() if d["R"] is not None]
+            d["R_fichier"], d["gain"] = nombre(l.get("R")), nombre(l.get("gain_devise"))
+            d["volume"], d["pe"], d["sl"] = nombre(l.get("volume")), nombre(l.get("pe")), nombre(l.get("sl"))
+    trades = [d for d in par_id.values() if d["R_fichier"] is not None]
+    trades = recalculer_r(trades)
     if genre:
         trades = [d for d in trades if d["genre"] == genre]
     return sorted(trades, key=lambda d: d["ouverture"])
+
+
+def recalculer_r(trades):
+    """R en argent = gain / (lot x distance du stop x f). f (valeur du point) est deduit des stops propres."""
+    def base(d):
+        try:
+            return d["volume"] * abs(d["pe"] - d["sl"])
+        except TypeError:
+            return None
+    rapports = sorted(-d["gain"] / base(d) for d in trades
+                      if d["R_fichier"] <= -0.98 and d["gain"] and base(d) and base(d) > 0 and d["gain"] < 0)
+    if len(rapports) < 5:
+        print("Attention : moins de 5 stops propres pour calibrer la valeur du point : R du fichier utilise.")
+        for d in trades:
+            d["R"] = d["R_fichier"]
+        return trades
+    f = rapports[len(rapports) // 2]
+    ecart = sum(1 for d in trades if base(d) and d["gain"] is not None and abs(d["gain"] / (base(d) * f) - d["R_fichier"]) > 0.15)
+    print(f"R recalcule en argent (valeur du point calibree sur {len(rapports)} stops : {f:.4f}). "
+          f"{ecart} trade(s) sur {len(trades)} ont un R du fichier different de plus de 0,15.")
+    for d in trades:
+        b = base(d)
+        d["R"] = d["gain"] / (b * f) if b and b > 0 and d["gain"] is not None else d["R_fichier"]
+    return trades
 
 
 def tendance_h1(bougies_h1):
