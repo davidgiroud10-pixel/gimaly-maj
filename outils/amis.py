@@ -85,6 +85,19 @@ def trouver(d, nom):
     raise SystemExit(f"ami inconnu : {nom} (amis.py liste pour voir)")
 
 
+def creer(nom):
+    """Cree un ami (canal + secret personnels), l'enregistre et ecrit son fichier identifiant. Renvoie (ami, fichier)."""
+    nom = nom_valide(nom)
+    d = charger()
+    if any(n.lower() == nom.lower() for n in d["amis"]):
+        raise SystemExit(f"{nom} existe deja (amis.py identifiant {nom} pour recreer son fichier)")
+    secret = secrets.token_hex(16)
+    d["amis"][nom] = {"canal": "gimaly-" + secrets.token_urlsafe(18), "secret": secret, "retour": canal_retour(secret),
+                      "actif": True, "cree": time.strftime("%Y-%m-%d %H:%M")}
+    enregistrer(d)
+    return d["amis"][nom], ecrire_identifiant(nom, d["amis"][nom])
+
+
 def main(argv):
     if not argv or argv[0] in ("-h", "--help"):
         print(__doc__)
@@ -92,17 +105,12 @@ def main(argv):
     cmd, args = argv[0].lower(), argv[1:]
     d = charger()
     if cmd == "ajouter":
-        nom = nom_valide(args[0] if args else "")
-        if any(n.lower() == nom.lower() for n in d["amis"]):
-            raise SystemExit(f"{nom} existe deja (amis.py identifiant {nom} pour recreer son fichier)")
-        secret = secrets.token_hex(16)
-        d["amis"][nom] = {"canal": "gimaly-" + secrets.token_urlsafe(18), "secret": secret, "retour": canal_retour(secret),
-                          "actif": True, "cree": time.strftime("%Y-%m-%d %H:%M")}
-        enregistrer(d)
-        f = ecrire_identifiant(nom, d["amis"][nom])
-        print(f"OK : {nom} ajoute.\nFichier a lui envoyer (en prive) : {f}")
-        print("Il le depose dans son dossier GIMALY-Trading-v7 (il est installe tout seul au demarrage du bot),")
-        print("ou il le glisse sur identifiant.bat, puis ARRETER / DEMARRER dans le panneau.")
+        nom = args[0] if args else ""
+        _, f = creer(nom)
+        print(f"OK : {nom} ajoute (canal personnel cree).")
+        print("Le plus simple : ouvre suivi_amis.bat, la nouvelle installation de ton ami y apparait : clique sur NOMMER,")
+        print("son identifiant lui est envoye tout seul (il n'a rien a faire).")
+        print(f"Plan B (manuel) : fichier a lui envoyer en prive : {f}")
     elif cmd == "liste":
         if not d["amis"]:
             print("Aucun ami enregistre.")

@@ -14,6 +14,7 @@ DOSSIER = Path.home() / "GIMALY" / "trading"
 STOP_TRADES = DOSSIER / "icebergs.stop"      # arret des trades (le detecteur ne repart pas tant qu'il existe)
 STOP_BOT = DOSSIER / "bot.stop"              # arret complet du bot
 STOP_LANCEUR = DOSSIER / "lanceur.stop"
+FLAG_REDEMARRAGE = DOSSIER / "redemarrage_bot.flag"   # pose par attribution.py : un nouvel identifiant attend un redemarrage du bot
 ATTENTE_RELANCE = 60                         # secondes minimum entre deux demarrages d'un meme processus
 PROCESSUS = {
     "bot": ["-u", "-m", "gimaly.trading.trading", "--boucle"],
@@ -60,6 +61,31 @@ def _compte_demo():
             mt5.shutdown()
     except Exception:
         return None
+
+
+def positions_ouvertes():
+    """Nombre de positions ouvertes sur le compte MT5, ou None si on ne peut pas le savoir."""
+    with _VERROU_MT5:
+        try:
+            import MetaTrader5 as mt5
+            if not mt5.initialize():
+                return None
+            try:
+                return mt5.positions_total()
+            finally:
+                mt5.shutdown()
+        except Exception:
+            return None
+
+
+def redemarrage_possible(maj):
+    """Redemarrer le bot sans risque : marche de l'or ferme, ou aucune position ouverte."""
+    try:
+        if maj is not None and maj.marche_ferme():
+            return True
+    except Exception:  # noqa: BLE001
+        pass
+    return positions_ouvertes() == 0
 
 
 def maj_disponible():
@@ -148,6 +174,10 @@ def main():
             journal(message)
     except Exception as exc:  # noqa: BLE001 - l'identifiant ne doit jamais empecher le bot de demarrer
         journal(f"identifiant : erreur ignoree {exc!r}")
+    try:
+        FLAG_REDEMARRAGE.unlink()                      # le bot demarre maintenant : il lira le nouvel identifiant
+    except OSError:
+        pass
     maj = maj_disponible()
     prochaine_maj, en_attente = 0.0, None
     prochain_retour = 0.0
@@ -200,6 +230,14 @@ def main():
                     retour.battement(etat_bot, compte_demo, journal)
                 except Exception as exc:  # noqa: BLE001 - le signe de vie ne doit jamais gener le bot
                     journal(f"retour : erreur ignoree {exc!r}")
+            if FLAG_REDEMARRAGE.exists():                        # nouvel identifiant installe (attribution.py)
+                p = procs.get("bot")
+                if p is None or p.poll() is not None:
+                    FLAG_REDEMARRAGE.unlink()                   # le bot ne tourne pas : il lira le nouvel identifiant
+                elif redemarrage_possible(maj):
+                    journal("nouvel identifiant installe : redemarrage du bot")
+                    FLAG_REDEMARRAGE.unlink()
+                    p.terminate()
             for nom in PROCESSUS:
                 p = procs.get(nom)
                 if p is not None and p.poll() is None:

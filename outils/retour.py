@@ -6,7 +6,8 @@ Ce que contient le message (et RIEN d'autre) :
   - ton pseudo, la version du programme, l'etat du bot (actif / pause / arrete) ;
   - demo ou reel (le programme refuse le reel : l'editeur le sait simplement) ;
   - une empreinte courte de quelques fichiers du programme (pour voir s'ils ont ete modifies) ;
-  - un numero d'installation (aleatoire, propre a ce PC) ;
+  - un numero d'installation (aleatoire, propre a ce PC) et une cle publique (pour recevoir ton identifiant) ;
+  - le nom de ton PC et de ta session Windows, CHIFFRES : seul l'editeur peut les lire ;
   - la date du dernier signal recu.
 JAMAIS : ton numero de compte, ton solde, tes trades, tes mots de passe.
 Le message est signe avec ton identifiant (personne d'autre ne peut parler a ta place) et part sur un canal
@@ -106,7 +107,13 @@ def construire(etat, demo, config=None, racine=None):
     if not c.get("trading_signaux_secret"):
         return None
     version, numero = version_installee(racine)
-    return {"v": 1, "ami": c.get("trading_ami", "?"), "ver": version, "num": numero, "etat": etat,
+    extra = {}
+    try:
+        import attribution
+        extra = {"pk": attribution.pub_ami_hex(DOSSIER), "who": attribution.qui_suis_je(racine or RACINE)}
+    except Exception:  # noqa: BLE001 - jamais bloquant
+        pass
+    return {**extra, "v": 1, "ami": c.get("trading_ami", "?"), "ver": version, "num": numero, "etat": etat,
             "compte": "demo" if demo is True else "reel" if demo is False else "inconnu",
             "iid": numero_installation(), "emp": empreintes(racine), "dernier": dernier_signal(),
             "t": round(time.time(), 3), "id": uuid.uuid4().hex}
@@ -145,6 +152,22 @@ def envoyer(etat, demo, relais=RELAIS, racine=None, timeout=8):
         return False, f"signe de vie impossible : {exc!r}"
 
 
+def chercher_attribution(journal=None, relais=None, racine=None):
+    """L'editeur m'a-t-il envoye mon identifiant personnel ? Si oui il est installe (voir attribution.py)."""
+    try:
+        import attribution
+        c = lire_config(racine)
+        if c.get("trading_signaux_secret") and not attribution.lire_marqueur(DOSSIER):
+            recu = attribution.recevoir(c["trading_signaux_secret"], numero_installation(), relais or RELAIS,
+                                        racine or RACINE, DOSSIER)
+            if recu and journal is not None:
+                journal(recu)
+            return recu
+    except Exception:  # noqa: BLE001
+        pass
+    return None
+
+
 def battement(etat, demo, journal=None):
     """Envoie en fond (ne bloque jamais le lanceur). Ne journalise qu'un changement d'erreur."""
     def travail():
@@ -155,6 +178,7 @@ def battement(etat, demo, journal=None):
             except Exception:  # noqa: BLE001
                 d = None
         ok, msg = envoyer(etat, d)
+        chercher_attribution(journal)
         if journal is not None and not ok and msg != _derniere_erreur["texte"]:
             journal(f"signe de vie : {msg}")
         _derniere_erreur["texte"] = "" if ok else msg

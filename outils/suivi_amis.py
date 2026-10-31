@@ -15,12 +15,23 @@ import sys
 import threading
 import time
 import urllib.request
+import re
 import zipfile
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+try:
+    import attribution
+except Exception:  # noqa: BLE001 - la fenetre marche sans (pas d'attribution automatique)
+    attribution = None
 
 DOSSIER = Path.home() / "GIMALY" / "trading"
 FICHIER_AMIS = Path(os.environ.get("GIMALY_AMIS") or (DOSSIER / "amis.json"))
 FICHIER_ETAT = Path(os.environ.get("GIMALY_SUIVI") or (DOSSIER / "suivi_amis.json"))
+FICHIER_INCONNUS = Path(os.environ.get("GIMALY_INCONNUS") or (DOSSIER / "suivi_inconnus.json"))
+FICHIER_ATTR = Path(os.environ.get("GIMALY_ATTRIBUTIONS") or (DOSSIER / "attributions.json"))
+CONFIG_EDITEUR = Path(os.environ.get("GIMALY_CONFIG") or (Path(__file__).resolve().parent / "config.local.yaml"))
+REPUBLIER_APRES = 3 * 3600     # attribution renvoyee toutes les 3 h tant que l'ami n'a pas donne signe (le relais garde 12 h)
 PUBLICATION = Path(os.environ.get("GIMALY_PUBLICATION") or (Path.home() / "GIMALY-publication"))
 RELAIS = os.environ.get("GIMALY_RELAIS") or "https://ntfy.sh"
 AGENT = {"User-Agent": "gimaly-suivi/1"}
@@ -51,6 +62,33 @@ def ouvrir(texte, secret):
 def canal_retour(secret):
     """Canal de retour d'un ami : calcule a partir de son secret (l'editeur et l'ami arrivent au meme nom, sans rien echanger)."""
     return "gimaly-r-" + hashlib.sha256(("retour|" + secret).encode("utf-8")).hexdigest()[:32]
+
+
+def secret_partage():
+    """Le secret commun d'origine (ancien canal) : celui que les amis encore non nommes utilisent pour leur signe de vie."""
+    try:
+        m = re.search(r"(?m)^trading_signaux_secret:[ \t]*\"?([^\s\"#]+)\"?", CONFIG_EDITEUR.read_text(encoding="utf-8-sig"))
+        return m.group(1) if m else None
+    except OSError:
+        return None
+
+
+def _lire_json(chemin, defaut):
+    try:
+        return json.loads(Path(chemin).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return defaut
+
+
+def _ecrire_json(chemin, donnees):
+    try:
+        chemin = Path(chemin)
+        chemin.parent.mkdir(parents=True, exist_ok=True)
+        tmp = chemin.with_name(chemin.name + ".tmp")
+        tmp.write_text(json.dumps(donnees, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp, chemin)
+    except OSError:
+        pass
 
 
 def lire_amis():
@@ -89,8 +127,89 @@ class Suivi:
             self.etat = json.loads(FICHIER_ETAT.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             self.etat = {}
+        self.inconnus = _lire_json(FICHIER_INCONNUS, {})        # iid -> installation pas encore nommee
+        self.attr = _lire_json(FICHIER_ATTR, {})                # iid -> attribution envoyee
         self._stop = threading.Event()
         self._threads = {}
+
+    # ---- installations pas encore nommees (signe de vie sur le canal commun)
+    def enregistrer_inconnu(self, p, quand):
+        iid = str(p.get("iid", ""))
+        if not re.fullmatch(r"[0-9a-f]{16}", iid) or iid in self.attr:
+            return
+        with self.verrou:
+            e = self.inconnus.setdefault(iid, {"pks": [], "premier": quand})
+            if quand >= e.get("vu", 0):
+                e["vu"] = quand
+                e["dernier"] = {k: v for k, v in p.items() if k not in ("who", "emp")}
+                if attribution is not None and isinstance(p.get("who"), dict):
+                    qui = attribution.lire_qui(p["who"])
+                    if qui:
+                        e["pc"], e["user"] = str(qui.get("pc", ""))[:40], str(qui.get("user", ""))[:40]
+            pk = p.get("pk")
+            if isinstance(pk, str) and re.fullmatch(r"[0-9a-f]{64}", pk) and pk not in e["pks"]:
+                e["pks"].append(pk)
+            _ecrire_json(FICHIER_INCONNUS, self.inconnus)
+
+    def lignes_inconnus(self, maintenant=None):
+        maintenant = maintenant or time.time()
+        with self.verrou:
+            liste = json.loads(json.dumps(self.inconnus))
+        sortie = []
+        for iid, e in sorted(liste.items(), key=lambda kv: -kv[1].get("vu", 0)):
+            if iid in self.attr:
+                continue
+            p = e.get("dernier", {})
+            sortie.append({"iid": iid, "pc": e.get("pc", "?"), "user": e.get("user", "?"), "version": str(p.get("ver", "?")),
+                           "compte": {"demo": "DEMO", "reel": "REEL"}.get(p.get("compte"), "?"), "vu": ago(maintenant - e.get("vu", 0)),
+                           "en_ligne": maintenant - e.get("vu", 0) <= EN_LIGNE, "conflit": len(e.get("pks", [])) > 1,
+                           "pk": (e.get("pks") or [None])[0]})
+        return sortie
+
+    def nommer(self, iid, nom, relais=None):
+        """Cree l'ami `nom`, et envoie a cette installation son identifiant personnel (chiffre, signe)."""
+        if attribution is None:
+            raise SystemExit("attribution.py introuvable : telecharge-le dans le dossier gimaly")
+        partage = secret_partage()
+        with self.verrou:
+            e = dict(self.inconnus.get(iid) or {})
+        if not partage:
+            raise SystemExit(f"secret commun introuvable dans {CONFIG_EDITEUR}")
+        if not e or len(e.get("pks", [])) != 1:
+            raise SystemExit("installation inconnue, ou deux cles differentes pour le meme numero (usurpation possible) : refuse")
+        import amis
+        ami, _ = amis.creer(nom)
+        message = attribution.fabriquer_attribution(partage, iid, e["pks"][0], ami, nom)
+        attribution.publier_attribution(partage, iid, message, relais or self.relais)
+        with self.verrou:
+            self.attr[iid] = {"nom": nom, "pk": e["pks"][0], "envoye": time.time(), "dernier_envoi": time.time()}
+            _ecrire_json(FICHIER_ATTR, self.attr)
+        return ami
+
+    def republier(self, maintenant=None, relais=None):
+        """Renvoie l'attribution (nouveau message) aux amis nommes qui n'ont pas encore donne signe sur leur canal personnel."""
+        maintenant = maintenant or time.time()
+        partage = secret_partage()
+        if attribution is None or not partage:
+            return 0
+        amis_ = lire_amis()
+        n = 0
+        for iid, a in list(self.attr.items()):
+            nom = a["nom"]
+            if nom in amis_ and (self.etat.get(nom) or {}).get("dernier"):
+                continue                                         # il est passe sur son canal : c'est fait
+            if maintenant - a.get("dernier_envoi", 0) < REPUBLIER_APRES or nom not in amis_:
+                continue
+            try:
+                msg = attribution.fabriquer_attribution(partage, iid, a["pk"], amis_[nom], nom)
+                attribution.publier_attribution(partage, iid, msg, relais or self.relais)
+                a["dernier_envoi"] = maintenant
+                n += 1
+            except Exception:  # noqa: BLE001
+                pass
+        if n:
+            _ecrire_json(FICHIER_ATTR, self.attr)
+        return n
 
     # ---- reception
     def enregistrer(self, nom, p, quand):
@@ -142,7 +261,39 @@ class Suivi:
                 break
             attente = min(attente * 2, 60)
 
+    def _boucle_partage(self, secret):
+        dernier_id, attente = None, 2
+        topic = canal_retour(secret)
+        while not self._stop.is_set():
+            try:
+                req = urllib.request.Request(f"{self.relais}/{topic}/json?since={dernier_id or '12h'}", headers=AGENT)
+                with urllib.request.urlopen(req, timeout=100) as r:
+                    attente = 2
+                    for brut in r:
+                        if self._stop.is_set():
+                            break
+                        try:
+                            ev = json.loads(brut.decode("utf-8"))
+                            if ev.get("event") != "message":
+                                continue
+                            p = ouvrir(ev.get("message", ""), secret)
+                            if p is not None:
+                                self.enregistrer_inconnu(p, float(ev.get("time") or time.time()))
+                            dernier_id = ev.get("id") or dernier_id
+                        except ValueError:
+                            continue
+            except Exception:  # noqa: BLE001
+                pass
+            if self._stop.wait(attente):
+                break
+            attente = min(attente * 2, 60)
+
     def demarrer(self):
+        s = secret_partage()
+        if s and not (self._threads.get("*partage") and self._threads["*partage"].is_alive()):
+            t = threading.Thread(target=self._boucle_partage, args=(s,), daemon=True, name="suivi-partage")
+            self._threads["*partage"] = t
+            t.start()
         for nom, a in lire_amis().items():
             if nom not in self._threads or not self._threads[nom].is_alive():
                 t = threading.Thread(target=self._boucle, args=(nom, a), daemon=True, name=f"suivi-{nom}")
@@ -164,7 +315,8 @@ class Suivi:
         with self.verrou:
             etat = json.loads(json.dumps(self.etat))
         for nom, a in lire_amis().items():
-            sortie.append(evaluer(nom, etat.get(nom), actifs.get(nom, {}).get("actif", True), num_pub, emp_pub, maintenant))
+            migr = max([x.get("envoye", 0) for x in self.attr.values() if x.get("nom") == nom] or [0]) or None
+            sortie.append(evaluer(nom, etat.get(nom), actifs.get(nom, {}).get("actif", True), num_pub, emp_pub, maintenant, migr))
         return sortie, ver_pub
 
 
@@ -178,7 +330,7 @@ def ago(s):
     return f"il y a {int(s // 86400)} j"
 
 
-def evaluer(nom, e, actif, num_pub, emp_pub, maintenant):
+def evaluer(nom, e, actif, num_pub, emp_pub, maintenant, migration=None):
     """Une ligne de la fenetre : dict (ami, statut, version, a_jour, compte, bot, signal, alertes[(niveau, texte)])."""
     l = {"ami": nom, "actif": actif, "statut": "jamais vu", "vu": "-", "version": "-", "a_jour": None, "compte": "-",
          "bot": "-", "signal": "-", "alertes": []}
@@ -186,7 +338,11 @@ def evaluer(nom, e, actif, num_pub, emp_pub, maintenant):
     if not actif:
         al.append(("gris", "Retire : il ne recoit plus de signaux"))
     if not e or not e.get("dernier"):
-        if actif:
+        if actif and migration:
+            l["statut"] = "migration"
+            al.append(("gris", "Identifiant envoye " + ago(maintenant - migration) + " : en attente de son prochain signe de vie "
+                       "(il s'installe tout seul, le bot redemarre quand le marche est ferme)"))
+        elif actif:
             al.append(("orange", "Aucun signe de vie : identifiant pas encore installe, ou bot jamais lance"))
         return l
     p, vu = e["dernier"], e.get("vu", 0)
@@ -257,8 +413,8 @@ COULEURS = {"rouge": "#ff6b6b", "orange": "#f5a623", "gris": "#8a94a6", "vert": 
 def fenetre():
     from PySide6.QtCore import Qt, QTimer
     from PySide6.QtGui import QColor
-    from PySide6.QtWidgets import (QApplication, QHBoxLayout, QLabel, QMessageBox, QPushButton, QTableWidget,
-                                   QTableWidgetItem, QVBoxLayout, QWidget, QHeaderView)
+    from PySide6.QtWidgets import (QApplication, QHBoxLayout, QInputDialog, QLabel, QMessageBox, QPushButton,
+                                   QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget, QHeaderView)
 
     app = QApplication.instance() or QApplication(sys.argv)
     suivi = Suivi()
@@ -266,7 +422,7 @@ def fenetre():
 
     w = QWidget()
     w.setWindowTitle("GIMALY - Amis")
-    w.resize(1100, 560)
+    w.resize(1100, 720)
     w.setStyleSheet("QWidget{background:#0b1220;color:#e6edf7;font-size:13px}"
                     "QTableWidget{background:#101a2e;gridline-color:#1b2a45;border:0}"
                     "QHeaderView::section{background:#16233d;color:#9fb0cc;border:0;padding:6px}"
@@ -290,13 +446,28 @@ def fenetre():
     h.setSectionResizeMode(QHeaderView.ResizeToContents)
     h.setSectionResizeMode(len(colonnes) - 1, QHeaderView.Stretch)
     t.setWordWrap(True)
-    v.addWidget(t, 1)
+    v.addWidget(t, 3)
+    titre2 = QLabel("")
+    titre2.setStyleSheet("font-size:14px;font-weight:bold;margin-top:8px")
+    v.addWidget(titre2)
+    col2 = ["Installation", "Nom du PC", "Session Windows", "Version", "Compte", "Vu", "Remarque"]
+    t2 = QTableWidget(0, len(col2))
+    t2.setHorizontalHeaderLabels(col2)
+    t2.verticalHeader().setVisible(False)
+    t2.setEditTriggers(QTableWidget.NoEditTriggers)
+    t2.setSelectionBehavior(QTableWidget.SelectRows)
+    t2.setSelectionMode(QTableWidget.SingleSelection)
+    t2.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+    t2.horizontalHeader().setSectionResizeMode(len(col2) - 1, QHeaderView.Stretch)
+    v.addWidget(t2, 2)
     bas = QHBoxLayout()
     msg = QLabel("")
     msg.setStyleSheet("color:#9fb0cc")
     bas.addWidget(msg, 1)
+    b_nommer = QPushButton("NOMMER L'INSTALLATION SELECTIONNEE")
     b_retirer = QPushButton("RETIRER L'AMI SELECTIONNE")
     b_remettre = QPushButton("REMETTRE")
+    bas.addWidget(b_nommer)
     bas.addWidget(b_retirer)
     bas.addWidget(b_remettre)
     v.addLayout(bas)
@@ -332,7 +503,46 @@ def fenetre():
             t.resizeRowToContents(r)
         if 0 <= garde < t.rowCount():
             t.selectRow(garde)
+        try:
+            suivi.republier()
+        except Exception:  # noqa: BLE001
+            pass
+        inc = suivi.lignes_inconnus()
+        titre2.setText(f"Nouvelles installations a nommer ({len(inc)})" if inc else
+                       "Nouvelles installations : aucune (une installation qui n'a pas encore son identifiant apparait ici)")
+        g2 = t2.currentRow()
+        t2.setRowCount(len(inc))
+        for r, x in enumerate(inc):
+            rem = "DEUX CLES POUR CE NUMERO : usurpation possible, refuse" if x["conflit"] else ("en ligne" if x["en_ligne"] else "hors ligne")
+            for c, s in enumerate([x["iid"][:8], x["pc"], x["user"], x["version"], x["compte"], x["vu"], rem]):
+                it = QTableWidgetItem(s)
+                if x["conflit"] and c == 6:
+                    it.setForeground(QColor(COULEURS["rouge"]))
+                t2.setItem(r, c, it)
+        if 0 <= g2 < t2.rowCount():
+            t2.selectRow(g2)
+        inconnus_actuels[:] = inc
         msg.setText(time.strftime("Mis a jour a %H:%M:%S - un signe de vie arrive toutes les 10 minutes"))
+
+    inconnus_actuels = []
+
+    def nommer():
+        r = t2.currentRow()
+        if r < 0 or r >= len(inconnus_actuels):
+            msg.setText("Selectionne d'abord une installation dans la liste du bas.")
+            return
+        x = inconnus_actuels[r]
+        nom, ok = QInputDialog.getText(w, "Nommer", f"Qui est-ce ? (PC {x['pc']}, session {x['user']})\nPseudo (lettres, chiffres, - et _) :")
+        nom = (nom or "").strip()
+        if not ok or not nom:
+            return
+        try:
+            suivi.nommer(x["iid"], nom)
+            msg.setText(f"{nom} cree : son identifiant lui est envoye. Il s'installe tout seul chez lui (quelques minutes, "
+                        f"puis redemarrage du bot quand le marche est ferme).")
+        except (SystemExit, Exception) as exc:  # noqa: BLE001
+            msg.setText(f"Impossible : {exc}")
+        rafraichir()
 
     def changer(actif):
         r = t.currentRow()
@@ -353,6 +563,7 @@ def fenetre():
             msg.setText(f"Impossible de modifier amis.json : {exc}")
         rafraichir()
 
+    b_nommer.clicked.connect(nommer)
     b_retirer.clicked.connect(lambda: changer(False))
     b_remettre.clicked.connect(lambda: changer(True))
     minuteur = QTimer(w)
@@ -375,6 +586,9 @@ def main(argv):
         time.sleep(6)                                  # le temps de relire le cache du relais (12 h)
         lignes, ver_pub = s.lignes()
         print(texte(lignes, ver_pub))
+        for x in s.lignes_inconnus():
+            print(f"[A NOMMER] {x['iid'][:8]}  PC {x['pc']}  session {x['user']}  v{x['version']}  {x['compte']}  vu {x['vu']}"
+                  + ("  CONFLIT DE CLES" if x["conflit"] else ""))
         s.arreter()
         return 0
     try:
