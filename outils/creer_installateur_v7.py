@@ -162,6 +162,13 @@ enregistre dans MT5 avec son mot de passe : le panneau ne demande jamais de mot 
 Si MT5 est connecte a un autre compte, le bot ne trade pas et attend. Impossible de changer de compte
 tant qu'un trade est ouvert. Seuls les comptes DEMO sont acceptes.
 
+UN COMPTE REEL ET UN COMPTE DEMO ?
+----------------------------------
+Un seul MetaTrader 5 ne peut etre connecte qu'a UN compte a la fois. Si tu trades a la main sur un compte reel,
+installe un 2e MetaTrader 5 dans un autre dossier (ex. C:\\MT5-Bot), connecte-le au compte DEMO du bot (mot de passe
+enregistre, Algo Trading actif), puis double-clique sur   terminal_dedie.bat   et suis les questions.
+Ton MetaTrader habituel n'est jamais touche. Redemarre ensuite le bot.
+
 
 """
 
@@ -526,6 +533,58 @@ class _FiltreMotifs:
         return None if DEPOT in ligne else self.base.search(ligne)
 
 
+TERMINAL_DEDIE_B64 = (
+    "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"
+)
+TERMINAL_DEDIE_BAT = ("@echo off\ncd /d %~dp0\n.venv\\Scripts\\python.exe terminal_dedie.py --assistant\n"
+                      "echo.\npause\n")
+
+
+def terminal_dedie_py():
+    import base64
+    import zlib
+    return zlib.decompress(base64.b64decode(TERMINAL_DEDIE_B64)).decode("utf-8")
+
+
 def lire(chemin, message):
     try:
         return chemin.read_text(encoding="utf-8-sig").strip()
@@ -569,6 +628,8 @@ def preparer():
     F["bilan_simple.py"] = BILAN_SIMPLE_PY
     F["panneau.py"] = poser_panneau(F["panneau.py"])
     F["compte.bat"] = COMPTE_BAT
+    F["terminal_dedie.py"] = terminal_dedie_py()
+    F["terminal_dedie.bat"] = TERMINAL_DEDIE_BAT
     F["lancer.py"] = (OUTILS / "lancer.py").read_text(encoding="utf-8")
     F["maj_auto.py"] = (RACINE / "maj_auto.py").read_text(encoding="utf-8")
     F["gimaly/trading/cle_publique.txt"] = cle_pub + "\n"

@@ -10,6 +10,7 @@ le second, reserve au bot, reste connecte au compte demo.
    en choisissant ce dossier, puis connecte-le au compte DEMO du bot (« Enregistrer le mot de passe » coche) et
    active le bouton Algo Trading.
 2) Lance ce script depuis le dossier gimaly :
+     double-clic sur  terminal_dedie.bat   (il pose les questions) ; ou en ligne de commande :
      .\\.venv\\Scripts\\python.exe terminal_dedie.py "C:\\MT5-Bot\\terminal64.exe"
    (sans argument, il cherche les terminal64.exe installes et te les liste)
 3) Redemarre GIMALY / le bot.
@@ -110,16 +111,77 @@ def trouver_terminaux():
     return vus
 
 
+def assistant():
+    """Mode double-clic (terminal_dedie.bat) : pose les questions, aucune ligne de commande a taper."""
+    print("TERMINAL MT5 DEDIE AU BOT")
+    print("-------------------------")
+    print("Le bot utilisera un MetaTrader 5 a part (connecte au compte DEMO du bot).")
+    print("Ton MetaTrader habituel (compte reel) n'est jamais touche.\n")
+    print("Avant : installe un 2e MetaTrader 5 dans un AUTRE dossier (ex. C:\\MT5-Bot), connecte-le au compte")
+    print("DEMO du bot (mot de passe enregistre) et active Algo Trading.\n")
+    cle = ""
+    try:
+        m = re.search(r"(?m)^trading_mt5_chemin:[ \t]*[\"']?([^\"'#\r\n]+?)[\"']?[ \t]*(?:#.*)?$",
+                      CONFIG.read_bytes().decode("utf-8-sig"))
+        cle = m.group(1).strip() if m else ""
+    except OSError:
+        pass
+    print("Terminal actuellement reserve au bot : " + (cle or "aucun (comportement normal)") + "\n")
+    liste = trouver_terminaux()
+    if liste:
+        print("MetaTrader 5 trouves sur ce PC :")
+        for i, f in enumerate(liste, 1):
+            print(f"  {i}) {f}")
+    else:
+        print("Aucun MetaTrader 5 trouve automatiquement.")
+    print("\n  Tape le NUMERO du 2e MetaTrader (celui du bot), ou colle son chemin complet (terminal64.exe),")
+    print("  ou tape R pour retirer le terminal dedie, ou Entree pour ne rien changer.")
+    choix = input("\nTon choix : ").strip().strip('"')
+    if not choix:
+        print("Rien n'a ete change.")
+        return
+    if choix.lower() == "r":
+        retirer()
+        return
+    if choix.isdigit() and 1 <= int(choix) <= len(liste):
+        choix = str(liste[int(choix) - 1])
+    print(f"\nLe bot utilisera : {choix}")
+    if input("Confirmer ? (O/N) : ").strip().lower() not in ("o", "oui", "y"):
+        print("Rien n'a ete change.")
+        return
+    installer(Path(choix))
+
+
+def retirer():
+    cible = dossier_site() / "sitecustomize.py"
+    ecrire_config("")
+    if cible.exists() and MARQUE in cible.read_text(encoding="utf-8", errors="ignore"):
+        cible.unlink()
+    print("OK : terminal dedie retire (le bot reprend le comportement normal). Redemarre GIMALY.")
+
+
+def installer(chemin):
+    cible = dossier_site() / "sitecustomize.py"
+    if chemin.name.lower() != "terminal64.exe" or not chemin.is_file():
+        print(f"{chemin} n'est pas un terminal64.exe existant : rien n'a ete change")
+        return
+    if cible.exists() and MARQUE not in cible.read_text(encoding="utf-8", errors="ignore"):
+        print(f"{cible} existe deja et n'est pas de GIMALY : rien n'a ete change")
+        return
+    cible.write_text(SITECUSTOMIZE % str(CONFIG), encoding="utf-8")
+    compile(cible.read_text(encoding="utf-8"), str(cible), "exec")
+    ecrire_config(str(chemin))
+    print(f"OK : le bot utilisera le terminal {chemin}")
+    print("Dans CE terminal : connecte le compte DEMO du bot et active Algo Trading. Puis redemarre GIMALY.")
+
+
 def main(args):
     if not CONFIG.exists():
         sys.exit(f"{CONFIG} introuvable : lance ce script depuis le dossier gimaly")
-    cible = dossier_site() / "sitecustomize.py"
+    if args and args[0] == "--assistant":
+        return assistant()
     if args and args[0] == "--retirer":
-        ecrire_config("")
-        if cible.exists() and MARQUE in cible.read_text(encoding="utf-8", errors="ignore"):
-            cible.unlink()
-        print("OK : terminal dedie retire (le bot reprend le comportement normal). Redemarre GIMALY.")
-        return
+        return retirer()
     if not args:
         liste = trouver_terminaux()
         print("Indique le terminal MT5 du bot, par exemple :")
@@ -128,16 +190,7 @@ def main(args):
         for f in liste:
             print("  " + str(f))
         return
-    chemin = Path(args[0].strip('"'))
-    if chemin.name.lower() != "terminal64.exe" or not chemin.is_file():
-        sys.exit(f"{chemin} n'est pas un terminal64.exe existant : rien n'a ete change")
-    if cible.exists() and MARQUE not in cible.read_text(encoding="utf-8", errors="ignore"):
-        sys.exit(f"{cible} existe deja et n'est pas de GIMALY : rien n'a ete change")
-    cible.write_text(SITECUSTOMIZE % str(CONFIG), encoding="utf-8")
-    compile(cible.read_text(encoding="utf-8"), str(cible), "exec")
-    ecrire_config(str(chemin))
-    print(f"OK : le bot utilisera le terminal {chemin}")
-    print("Dans CE terminal : connecte le compte DEMO du bot et active Algo Trading. Puis redemarre GIMALY.")
+    installer(Path(args[0].strip('"')))
 
 
 if __name__ == "__main__":
