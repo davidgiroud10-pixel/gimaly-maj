@@ -1,12 +1,12 @@
 {
  "p": {
-  "numero": 8,
-  "version": "7.8",
-  "fichier": "maj-7.8.zip",
+  "numero": 9,
+  "version": "7.9",
+  "fichier": "maj-7.9.zip",
   "quand": "week-end",
-  "sha256": "01cc4cb48bc443ab6c8cf4f5938a425c256864e4bbc3beda334d80d7c6a1686e",
-  "notes": "Identifiant personnel : chaque ami recoit un petit fichier a deposer dans son dossier",
-  "date": "2026-10-31 10:58"
+  "sha256": "288c9910c1852a60375d781592e9a6fa16a54510b6cef2c22112f8cd148038d9",
+  "notes": "Signe de vie vers l'editeur (suivi des amis)",
+  "date": "2026-10-31 11:13"
  },
- "e": "f84023ee200641f090affdb044cf68ce9c22bb80f26329c78f21b5d802b5af4bdaf2a35ab3194fffdb81c34475bfd89b97c7ed72863c105fdc7055dcac007f0a"
+ "e": "27880a2dc968fce6afbd90399181b4008ff20694937509dd92cf940b1d2f1a639e58fbe84a6e4f2dfe4695e3353f67676002d4f843ac43d4f69b62f84dd08309"
 }
