@@ -32,13 +32,11 @@ def lire_identifiant(chemin):
     texte = Path(chemin).read_text(encoding="utf-8-sig", errors="replace")
     valeurs = {}
     for ligne in texte.splitlines():
-        m = re.match(r"^\s*(trading_signaux_canal|trading_signaux_secret|trading_signaux_retour|trading_ami)\s*:\s*(\S+)\s*$", ligne)
+        m = re.match(r"^\s*(trading_signaux_canal|trading_signaux_secret|trading_ami)\s*:\s*(\S+)\s*$", ligne)
         if m:
             valeurs[m.group(1)] = m.group(2).strip("\"'")
     if not CANAL_OK.match(valeurs.get("trading_signaux_canal", "")) or not SECRET_OK.match(valeurs.get("trading_signaux_secret", "")):
         raise SystemExit(f"{chemin} n'est pas un identifiant GIMALY valide (canal ou secret manquant ou abime).")
-    if "trading_signaux_retour" in valeurs and not CANAL_OK.match(valeurs["trading_signaux_retour"]):
-        raise SystemExit(f"{chemin} : canal retour invalide.")
     if "trading_ami" in valeurs and not NOM_OK.match(valeurs["trading_ami"]):
         raise SystemExit(f"{chemin} : pseudo invalide.")
     return valeurs

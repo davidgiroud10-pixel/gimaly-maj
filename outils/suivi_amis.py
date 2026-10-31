@@ -48,10 +48,16 @@ def ouvrir(texte, secret):
     return p if hmac.compare_digest(attendu, s) else None
 
 
+def canal_retour(secret):
+    """Canal de retour d'un ami : calcule a partir de son secret (l'editeur et l'ami arrivent au meme nom, sans rien echanger)."""
+    return "gimaly-r-" + hashlib.sha256(("retour|" + secret).encode("utf-8")).hexdigest()[:32]
+
+
 def lire_amis():
     try:
         d = json.loads(FICHIER_AMIS.read_text(encoding="utf-8"))
-        return {n: a for n, a in (d.get("amis") or {}).items() if isinstance(a, dict) and a.get("secret") and a.get("retour")}
+        return {n: dict(a, retour=canal_retour(a["secret"])) for n, a in (d.get("amis") or {}).items()
+                if isinstance(a, dict) and a.get("secret")}
     except (OSError, ValueError, AttributeError):
         return {}
 

@@ -10,7 +10,7 @@ Ce que contient le message (et RIEN d'autre) :
   - la date du dernier signal recu.
 JAMAIS : ton numero de compte, ton solde, tes trades, tes mots de passe.
 Le message est signe avec ton identifiant (personne d'autre ne peut parler a ta place) et part sur un canal
-« retour » qui t'est propre. Sans identifiant installe, rien n'est envoye.
+« retour » qui t'est propre (calcule a partir de ton identifiant). Sans identifiant installe, rien n'est envoye.
 """
 import hashlib
 import hmac
@@ -33,17 +33,22 @@ _derniere_erreur = {"texte": ""}
 
 
 def lire_config(racine=None):
-    """trading_ami, trading_signaux_retour, trading_signaux_secret lus dans config.local.yaml."""
+    """trading_ami (facultatif) et trading_signaux_secret lus dans config.local.yaml."""
     try:
         texte = ((racine or RACINE) / "config.local.yaml").read_text(encoding="utf-8-sig")
     except OSError:
         return {}
     valeurs = {}
-    for cle in ("trading_ami", "trading_signaux_retour", "trading_signaux_secret"):
+    for cle in ("trading_ami", "trading_signaux_secret"):
         m = re.search(r"(?m)^%s:[ \t]*\"?([^\s\"#]+)\"?" % cle, texte)
         if m:
             valeurs[cle] = m.group(1)
     return valeurs
+
+
+def canal_retour(secret):
+    """Canal de retour d'un ami : calcule a partir de son secret (l'editeur et l'ami arrivent au meme nom, sans rien echanger)."""
+    return "gimaly-r-" + hashlib.sha256(("retour|" + secret).encode("utf-8")).hexdigest()[:32]
 
 
 def empreinte_fichier(chemin):
@@ -98,7 +103,7 @@ def canon(p):
 def construire(etat, demo, config=None, racine=None):
     """Le message (dictionnaire) ; None si l'identifiant n'est pas installe."""
     c = config if config is not None else lire_config(racine)
-    if not c.get("trading_signaux_retour") or not c.get("trading_signaux_secret"):
+    if not c.get("trading_signaux_secret"):
         return None
     version, numero = version_installee(racine)
     return {"v": 1, "ami": c.get("trading_ami", "?"), "ver": version, "num": numero, "etat": etat,
@@ -133,7 +138,7 @@ def envoyer(etat, demo, relais=RELAIS, racine=None, timeout=8):
         if p is None:
             return False, "identifiant non installe : rien envoye"
         corps = emballer(p, c["trading_signaux_secret"]).encode("utf-8")
-        req = urllib.request.Request(f"{relais}/{c['trading_signaux_retour']}", data=corps, headers=AGENT, method="POST")
+        req = urllib.request.Request(f"{relais}/{canal_retour(c['trading_signaux_secret'])}", data=corps, headers=AGENT, method="POST")
         with urllib.request.urlopen(req, timeout=timeout) as r:
             return (200 <= r.status < 300), f"relais HTTP {r.status}"
     except Exception as exc:  # noqa: BLE001

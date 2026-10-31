@@ -14,6 +14,7 @@ Usage (depuis le dossier gimaly) :
                                                             tous tes amis ont installe leur identifiant)
 Le bot lit la liste a chaque signal : rien a redemarrer.
 """
+import hashlib
 import json
 import os
 import re
@@ -28,6 +29,11 @@ DOSSIER_IDENTIFIANTS = Path(os.environ.get("GIMALY_IDENTIFIANTS") or (Path.home(
 NOM_OK = re.compile(r"^[A-Za-z0-9_\-]{1,30}$")
 
 
+def canal_retour(secret):
+    """Canal de retour d'un ami : calcule a partir de son secret (l'editeur et l'ami arrivent au meme nom, sans rien echanger)."""
+    return "gimaly-r-" + hashlib.sha256(("retour|" + secret).encode("utf-8")).hexdigest()[:32]
+
+
 def charger():
     try:
         d = json.loads(FICHIER.read_text(encoding="utf-8"))
@@ -39,8 +45,8 @@ def charger():
         raise SystemExit(f"{FICHIER} est illisible : arret (rien modifie). Une copie existe peut-etre : {FICHIER}.bak")
     d.setdefault("amis", {})
     d.setdefault("ancien_canal", True)
-    for a in d["amis"].values():                     # amis crees avant le signe de vie : on leur ajoute un canal retour
-        a.setdefault("retour", "gimaly-r-" + secrets.token_urlsafe(18))
+    for a in d["amis"].values():                     # canal retour : calcule depuis le secret (rien a envoyer a l'ami)
+        a["retour"] = canal_retour(a["secret"])
     return d
 
 
@@ -62,7 +68,6 @@ def ecrire_identifiant(nom, ami):
         "# il pourra etre coupe sans prevenir.\n"
         f"trading_signaux_canal: {ami['canal']}\n"
         f"trading_signaux_secret: {ami['secret']}\n"
-        f"trading_signaux_retour: {ami['retour']}\n"
         f"trading_ami: {nom}\n", encoding="utf-8", newline="\r\n")
     return f
 
@@ -90,8 +95,8 @@ def main(argv):
         nom = nom_valide(args[0] if args else "")
         if any(n.lower() == nom.lower() for n in d["amis"]):
             raise SystemExit(f"{nom} existe deja (amis.py identifiant {nom} pour recreer son fichier)")
-        d["amis"][nom] = {"canal": "gimaly-" + secrets.token_urlsafe(18), "secret": secrets.token_hex(16),
-                          "retour": "gimaly-r-" + secrets.token_urlsafe(18),
+        secret = secrets.token_hex(16)
+        d["amis"][nom] = {"canal": "gimaly-" + secrets.token_urlsafe(18), "secret": secret, "retour": canal_retour(secret),
                           "actif": True, "cree": time.strftime("%Y-%m-%d %H:%M")}
         enregistrer(d)
         f = ecrire_identifiant(nom, d["amis"][nom])
