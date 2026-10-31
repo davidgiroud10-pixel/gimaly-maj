@@ -601,5 +601,8 @@ def main(argv):
 
 if __name__ == "__main__":
     code = main(sys.argv[1:])
-    sys.stdout.flush()
+    try:
+        sys.stdout.flush()                              # pythonw : pas de console (stdout vaut None)
+    except Exception:  # noqa: BLE001
+        pass
     os._exit(code)                                     # les fils d'ecoute ne retiennent pas la fermeture
