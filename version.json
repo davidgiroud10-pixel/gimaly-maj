@@ -1,12 +1,12 @@
 {
  "p": {
-  "numero": 7,
-  "version": "7.7",
-  "fichier": "maj-7.7.zip",
+  "numero": 8,
+  "version": "7.8",
+  "fichier": "maj-7.8.zip",
   "quand": "week-end",
-  "sha256": "04e75d7ef44cce8aedd2fedf46a83381dc472b19ae5797e4099844bd8db4167c",
-  "notes": "Deux comptes MT5 : terminal_dedie.bat (terminal MetaTrader reserve au bot)",
-  "date": "2026-10-31 08:30"
+  "sha256": "01cc4cb48bc443ab6c8cf4f5938a425c256864e4bbc3beda334d80d7c6a1686e",
+  "notes": "Identifiant personnel : chaque ami recoit un petit fichier a deposer dans son dossier",
+  "date": "2026-10-31 10:58"
  },
- "e": "67b52333e90e939d88255dea6ee3ea4fd62a429fbd1792b98e0c9e2dc3237630bcda7e931b81d4484f126010f10acdddd8cc91cb0eaa3b88a3d190181114f60a"
+ "e": "f84023ee200641f090affdb044cf68ce9c22bb80f26329c78f21b5d802b5af4bdaf2a35ab3194fffdb81c34475bfd89b97c7ed72863c105fdc7055dcac007f0a"
 }
