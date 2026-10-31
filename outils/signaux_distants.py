@@ -40,6 +40,27 @@ CLES_CONTEXTE_MIN = ("tp_r", "duree_max_min", "sl_max_pips", "tendance_h1", "ret
 AGENT = {"User-Agent": "gimaly-signaux/2"}
 
 
+# ---------------------------------------------------------------- amis (un canal PERSONNEL par ami)
+FICHIER_AMIS = Path(os.environ.get("GIMALY_AMIS") or (Path.home() / "GIMALY" / "trading" / "amis.json"))
+
+
+def empreinte(canal):
+    """Identifiant court d'un canal (8 caracteres), ajoute a chaque signal envoye a un ami : un signal pris sur
+    le canal d'un ami n'est pas accepte par le bot d'un autre."""
+    return hashlib.sha256(("gimaly-ami:" + str(canal)).encode("utf-8")).hexdigest()[:8]
+
+
+def lire_amis():
+    """Editeur : ({nom: {"canal", "secret"}} des amis ACTIFS, ancien_canal_actif). Fichier absent : ({}, True)."""
+    try:
+        d = json.loads(FICHIER_AMIS.read_text(encoding="utf-8"))
+        amis = {n: a for n, a in (d.get("amis") or {}).items()
+                if isinstance(a, dict) and a.get("actif", True) and a.get("canal") and a.get("secret")}
+        return amis, bool(d.get("ancien_canal", True))
+    except (OSError, ValueError, AttributeError):
+        return {}, True
+
+
 # ---------------------------------------------------------------- cles (Ed25519)
 def _fichier_cle_privee():
     """Cle privee de l'editeur : uniquement sur son PC (jamais dans un paquet distribue)."""
@@ -133,12 +154,21 @@ def publier(payload, canal, secret, relais=RELAIS, timeout=6):
 
 
 def publier_en_fond(payload, canal, secret, relais=RELAIS, journal=print):
-    """Publie sans bloquer la boucle du bot."""
-    def travail():
-        ok, msg = publier(payload, canal, secret, relais)
+    """Publie sans bloquer la boucle du bot : sur le canal commun (tant qu'il est actif) et sur le canal
+    PERSONNEL de chaque ami actif (amis.json), chacun avec son empreinte. Un ami retire n'est plus servi."""
+    amis, ancien = lire_amis()
+
+    def envoyer(nom, p, c, sec):
+        ok, msg = publier(p, c, sec, relais)
         if not ok:
-            journal(f"[signaux] {msg}")
-    threading.Thread(target=travail, daemon=True, name="gimaly-publier").start()
+            journal(f"[signaux] {nom} : {msg}")
+
+    if ancien or not amis:
+        threading.Thread(target=envoyer, args=("canal commun", payload, canal, secret),
+                         daemon=True, name="gimaly-publier").start()
+    for nom, a in amis.items():
+        threading.Thread(target=envoyer, args=(f"ami {nom}", dict(payload, d=empreinte(a["canal"])), a["canal"], a["secret"]),
+                         daemon=True, name="gimaly-publier").start()
 
 
 # ---------------------------------------------------------------- recepteur
@@ -214,6 +244,11 @@ class Recepteur:
         if payload is None:
             self.rejetes += 1
             self.journal("[signaux] message rejete (signature invalide)")
+            return
+        d = payload.get("d")
+        if d is not None and d != empreinte(self.canal):
+            self.rejetes += 1
+            self.journal("[signaux] message destine a un autre canal : ignore")
             return
         age = time.time() - float(ev.get("time") or 0)     # horloge du relais : pas celle de l'editeur
         if age > self.age_max or age < -120:

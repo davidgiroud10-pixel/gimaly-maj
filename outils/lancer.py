@@ -132,6 +132,13 @@ def main():
         STOP_LANCEUR.unlink()
     procs, dernier, signale, verifie = {}, {}, {}, {}
     journal("lanceur demarre (Ctrl+C ou fichier lanceur.stop pour l'arreter)")
+    try:
+        import identifiant
+        message = identifiant.auto()
+        if message:
+            journal(message)
+    except Exception as exc:  # noqa: BLE001 - l'identifiant ne doit jamais empecher le bot de demarrer
+        journal(f"identifiant : erreur ignoree {exc!r}")
     maj = maj_disponible()
     prochaine_maj, en_attente = 0.0, None
     if maj is not None and os.environ.get("GIMALY_APRES_MAJ") != "1":
