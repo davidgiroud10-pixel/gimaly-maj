@@ -30,6 +30,10 @@ PAUSE_NOUVEAU = ("        signaux = rec.recuperer()\n"
                  "        for p in signaux:\n")
 REEL_ANCIEN = '"autorise_reel": bool(lire("trading_autorise_reel", False)),'
 REEL_NOUVEAU = '"autorise_reel": False,   # paquet : demo uniquement'
+COMPTE_ANCRE_METHODE = '    def peut_trader(self, marche=None, filtres=True):\n'
+COMPTE_METHODE = '    def _compte_voulu(self):\n        # numero du compte MT5 choisi par l\'utilisateur (compte.bat), relu depuis config.local.yaml\n        # (au plus toutes les 30 s) : pas de redemarrage necessaire. 0 = pas de restriction.\n        try:\n            return int(str(_yaml_local().get("trading_mt5_compte", 0) or 0).strip() or 0)\n        except (TypeError, ValueError):\n            return -1          # valeur illisible : par prudence le bot ne trade pas\n\n'
+COMPTE_CTRL_ANCIEN = '        if compte.trade_mode != 0 and not r["autorise_reel"]:\n            return False, "compte NON demo : refus (trading_autorise_reel est a false)"\n'
+COMPTE_CTRL_NOUVEAU = '        if compte.trade_mode != 0 and not r["autorise_reel"]:\n            return False, "compte NON demo : refus (trading_autorise_reel est a false)"\n        voulu = self._compte_voulu()\n        if voulu < 0:\n            return False, "trading_mt5_compte illisible dans config.local.yaml (compte.bat pour corriger)"\n        if voulu and compte.login != voulu:\n            return False, (f"MT5 est connecte au compte {compte.login}, le bot est reserve au compte "\n                           f"{voulu} (compte.bat pour changer)")\n'
 UTIL_DEV = b"C:\\Users\\Alycia"
 UTIL_PAQUET = b"C:\\Users\\<toi>"
 
@@ -53,6 +57,7 @@ def inverser_module(module, texte):
         if texte.count(PAUSE_NOUVEAU) != 1:
             raise ValueError("pause distante du paquet introuvable")
         texte = texte.replace(PAUSE_NOUVEAU, PAUSE_ANCIEN)
+        texte = retirer_compte(texte)
         n_restants = texte.count("symbole_or")
         if n_restants:
             raise ValueError("trading.py : 'symbole_or' encore present apres inversion")
@@ -78,6 +83,7 @@ def appliquer_module(module, texte):
     if module == "trading":
         texte = texte.replace('SYMBOLE = "XAUUSD"', IMPORT_SYMBOLE + "SYMBOLE = symbole_or()")
         texte = texte.replace(REEL_ANCIEN, REEL_NOUVEAU)
+        texte = poser_compte(texte)
         texte = texte.replace(PAUSE_ANCIEN, PAUSE_NOUVEAU)
         return texte
     lignes = []
@@ -97,6 +103,22 @@ def appliquer_module(module, texte):
         else:
             texte = texte.rstrip("\n") + "\n\n" + IMPORT_SYMBOLE
     return texte
+
+
+def poser_compte(texte):
+    """Ce que fait creer_installateur_v7.poser_compte_trading sur le trading.py du paquet."""
+    if texte.count(COMPTE_ANCRE_METHODE) != 1 or texte.count(COMPTE_CTRL_ANCIEN) != 1:
+        raise ValueError("reperes du patch compte introuvables")
+    texte = texte.replace(COMPTE_ANCRE_METHODE, COMPTE_METHODE + COMPTE_ANCRE_METHODE)
+    return texte.replace(COMPTE_CTRL_ANCIEN, COMPTE_CTRL_NOUVEAU)
+
+
+def retirer_compte(texte):
+    """Inverse de poser_compte (le patch ne doit exister qu'UNE fois dans le fichier du paquet)."""
+    if texte.count(COMPTE_METHODE + COMPTE_ANCRE_METHODE) != 1 or texte.count(COMPTE_CTRL_NOUVEAU) != 1:
+        raise ValueError("patch compte du paquet introuvable (ou en double)")
+    texte = texte.replace(COMPTE_METHODE + COMPTE_ANCRE_METHODE, COMPTE_ANCRE_METHODE)
+    return texte.replace(COMPTE_CTRL_NOUVEAU, COMPTE_CTRL_ANCIEN)
 
 
 def fin_de_ligne_habituelle(chemin):
@@ -154,6 +176,43 @@ def appliquer_bilan(t):
     return t.replace(BILAN_DEV_1, BILAN_PAQUET_1).replace(BILAN_DEV_2, BILAN_PAQUET_2)
 
 
+def corriger_compte_dev(chemin, appliquer):
+    """Correction d'une restauration faite AVEC la v1 de ce script : elle laissait dans trading.py le patch
+    « compte MT5 choisi » (ajoute seulement dans le paquet des amis). On le retire, puis on verifie en
+    re-fabriquant le trading.py du paquet : il doit etre identique a celui de maj-7.N.zip (dans le dossier gimaly)."""
+    import zipfile
+    texte = lire_texte(chemin)
+    if "def _compte_voulu" not in texte:
+        print("  trading.py (patch compte) : rien a corriger")
+        return True
+    if texte.count(COMPTE_METHODE + COMPTE_ANCRE_METHODE) != 1:
+        print("  trading.py (patch compte) : forme inattendue, RIEN ecrit")
+        return False
+    corrige = retirer_compte(texte)
+    zips = sorted(RACINE.glob("maj-7.*.zip"), key=lambda p: p.stat().st_mtime, reverse=True)
+    refs = []
+    for z in zips:
+        try:
+            with zipfile.ZipFile(z) as f:
+                refs.append((z.name, f.read("gimaly/trading/trading.py").decode("utf-8").replace("\r\n", "\n")))
+        except (OSError, KeyError, zipfile.BadZipFile):
+            continue
+    fabrique = appliquer_module("trading", corrige)
+    trouve = [nom for nom, t in refs if t == fabrique]
+    if not trouve:
+        print("  trading.py (patch compte) : la verification contre maj-7.N.zip echoue (ou aucun zip present), RIEN ecrit")
+        return False
+    fdl = fin_de_ligne_habituelle(chemin)
+    sortie = corrige.replace("\n", fdl).encode("utf-8")
+    print(f"  trading.py (patch compte) : retire et verifie contre {trouve[0]} ({len(sortie)} octets)")
+    if appliquer:
+        copie = chemin.with_name(chemin.name + ".avant_correction_compte")
+        if not copie.exists():
+            shutil.copy2(chemin, copie)
+        chemin.write_bytes(sortie)
+    return True
+
+
 def main():
     appliquer = "--appliquer" in sys.argv
     trading = RACINE / "gimaly" / "trading"
@@ -167,6 +226,7 @@ def main():
                       lambda t, m=module: appliquer_module(m, t),
                       appliquer, module + ".py")
     ok &= traiter(RACINE / "bilan_reel.py", inverser_bilan, appliquer_bilan, appliquer, "bilan_reel.py")
+    ok &= corriger_compte_dev(trading / "trading.py", appliquer)
     print()
     if not ok:
         raise SystemExit("au moins une verification a echoue : rien d'incertain n'a ete ecrit pour ces fichiers")
