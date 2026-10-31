@@ -1,12 +1,12 @@
 {
  "p": {
-  "numero": 9,
-  "version": "7.9",
-  "fichier": "maj-7.9.zip",
+  "numero": 10,
+  "version": "7.10",
+  "fichier": "maj-7.10.zip",
   "quand": "week-end",
-  "sha256": "288c9910c1852a60375d781592e9a6fa16a54510b6cef2c22112f8cd148038d9",
-  "notes": "Signe de vie vers l'editeur (suivi des amis)",
-  "date": "2026-10-31 11:13"
+  "sha256": "9a50ea1c90ccd12881a7f2db9a908660094e720d034f2e5dff63f9547a17468c",
+  "notes": "Identifiant personnel automatique",
+  "date": "2026-10-31 11:29"
  },
- "e": "27880a2dc968fce6afbd90399181b4008ff20694937509dd92cf940b1d2f1a639e58fbe84a6e4f2dfe4695e3353f67676002d4f843ac43d4f69b62f84dd08309"
+ "e": "28447d20f1ccb3ae748e949139886b90960a426c6c4e9a8f316da5b3f4db59fcf880b9f761e8a1668f1892f9b3b1ec8d2dba84077e68e0b670a132815e60eb0d"
 }
