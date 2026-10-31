@@ -131,6 +131,7 @@ class Suivi:
         self.attr = _lire_json(FICHIER_ATTR, {})                # iid -> attribution envoyee
         self._stop = threading.Event()
         self._threads = {}
+        self._gen = 0                                           # change a chaque ACTUALISER : les anciens fils s'arretent
 
     # ---- installations pas encore nommees (signe de vie sur le canal commun)
     def enregistrer_inconnu(self, p, quand):
@@ -242,15 +243,15 @@ class Suivi:
         return ev.get("id")
 
     def _boucle(self, nom, a):
-        dernier_id, attente = None, 2
-        while not self._stop.is_set():
+        dernier_id, attente, gen = None, 2, self._gen
+        while not self._stop.is_set() and gen == self._gen:
             try:
                 depuis = dernier_id or "12h"
                 req = urllib.request.Request(f"{self.relais}/{a['retour']}/json?since={depuis}", headers=AGENT)
                 with urllib.request.urlopen(req, timeout=100) as r:
                     attente = 2
                     for brut in r:
-                        if self._stop.is_set():
+                        if self._stop.is_set() or gen != self._gen:
                             break
                         i = self.traiter_ligne(nom, a["secret"], brut)
                         if i:
@@ -262,15 +263,15 @@ class Suivi:
             attente = min(attente * 2, 60)
 
     def _boucle_partage(self, secret):
-        dernier_id, attente = None, 2
+        dernier_id, attente, gen = None, 2, self._gen
         topic = canal_retour(secret)
-        while not self._stop.is_set():
+        while not self._stop.is_set() and gen == self._gen:
             try:
                 req = urllib.request.Request(f"{self.relais}/{topic}/json?since={dernier_id or '12h'}", headers=AGENT)
                 with urllib.request.urlopen(req, timeout=100) as r:
                     attente = 2
                     for brut in r:
-                        if self._stop.is_set():
+                        if self._stop.is_set() or gen != self._gen:
                             break
                         try:
                             ev = json.loads(brut.decode("utf-8"))
@@ -299,6 +300,12 @@ class Suivi:
                 t = threading.Thread(target=self._boucle, args=(nom, a), daemon=True, name=f"suivi-{nom}")
                 self._threads[nom] = t
                 t.start()
+
+    def actualiser(self):
+        """Relit tout depuis le relais (12 h d'historique) : les anciennes ecoutes s'arretent, de nouvelles repartent."""
+        self._gen += 1
+        self._threads.clear()
+        self.demarrer()
 
     def arreter(self):
         self._stop.set()
@@ -464,9 +471,11 @@ def fenetre():
     msg = QLabel("")
     msg.setStyleSheet("color:#9fb0cc")
     bas.addWidget(msg, 1)
+    b_actualiser = QPushButton("ACTUALISER")
     b_nommer = QPushButton("NOMMER L'INSTALLATION SELECTIONNEE")
     b_retirer = QPushButton("RETIRER L'AMI SELECTIONNE")
     b_remettre = QPushButton("REMETTRE")
+    bas.addWidget(b_actualiser)
     bas.addWidget(b_nommer)
     bas.addWidget(b_retirer)
     bas.addWidget(b_remettre)
@@ -563,6 +572,12 @@ def fenetre():
             msg.setText(f"Impossible de modifier amis.json : {exc}")
         rafraichir()
 
+    def actualiser():
+        suivi.actualiser()
+        msg.setText("Relecture du relais en cours...")
+        QTimer.singleShot(3000, lambda: (rafraichir(), msg.setText(time.strftime("Actualise a %H:%M:%S : relais relu (12 h d'historique)"))))
+
+    b_actualiser.clicked.connect(actualiser)
     b_nommer.clicked.connect(nommer)
     b_retirer.clicked.connect(lambda: changer(False))
     b_remettre.clicked.connect(lambda: changer(True))
