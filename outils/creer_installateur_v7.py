@@ -390,6 +390,33 @@ def version():
         return "?"
 
 
+def _base(t):
+    try:
+        return t["vol"] * abs(t["pe"] - t["sl"])
+    except (TypeError, KeyError):
+        return None
+
+
+def facteur_r():
+    """Les anciennes versions calculaient le R sur 1 % du solde ACTIF (faux si le lot est plafonne ou si MT5 etait
+    sur un autre compte) : un stop touche pouvait s'afficher -9 R. Si les stops du fichier ne sont pas a -1 R, le R
+    est recalcule sur l'argent reellement perdu (gain / (lot x distance du stop x valeur du point)), la valeur du
+    point etant deduite de tes propres stops. Renvoie ce facteur, ou None si le R du fichier est coherent."""
+    try:
+        import bilan_reel
+        tous = [t for t in bilan_reel.charger(datetime(2000, 1, 1)) if t["R"] is not None]
+    except Exception:
+        return None
+    stops = [t for t in tous if t["res"] == "stop loss" and t["gain"] is not None and t["gain"] < 0 and _base(t)]
+    if not stops:
+        return None
+    r_fichier = sorted(t["R"] for t in stops)[len(stops) // 2]
+    if abs(r_fichier + 1) <= 0.15:
+        return None
+    rapports = sorted(-t["gain"] / _base(t) for t in stops)
+    return rapports[len(rapports) // 2]
+
+
 def texte_bilan(periode="jour", maintenant=None):
     n = maintenant or datetime.now()
     d = debut(periode, n)
@@ -405,8 +432,15 @@ def texte_bilan(periode="jour", maintenant=None):
     except OSError:
         lignes.append("Pas encore de trade : le bot n'a pas encore pris de position.")
         return "\n".join(lignes)
+    f = facteur_r()
+    if f:
+        for t in trades:
+            if t["R"] is not None and t["gain"] is not None and _base(t):
+                t["R"] = t["gain"] / (_base(t) * f)
     finis = sorted((t for t in trades if t["R"] is not None), key=lambda t: t["ouv"])
     ouverts = [t for t in trades if t["R"] is None]
+    if f:
+        lignes.append("(R recalcule sur le risque reellement pris)")
     if not finis:
         lignes.append("Aucun trade termine sur cette periode.")
         if ouverts:
