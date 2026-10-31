@@ -1,12 +1,12 @@
 {
  "p": {
-  "numero": 6,
-  "version": "7.6",
-  "fichier": "maj-7.6.zip",
+  "numero": 7,
+  "version": "7.7",
+  "fichier": "maj-7.7.zip",
   "quand": "week-end",
-  "sha256": "8b4c71b2d5b7ec15baa118e45e8e07ee83f5a277e02a796b73151e27964491f8",
-  "notes": "Bilan : R recalcule sur le risque reellement pris (anciens bilans corriges)",
-  "date": "2026-10-31 08:19"
+  "sha256": "04e75d7ef44cce8aedd2fedf46a83381dc472b19ae5797e4099844bd8db4167c",
+  "notes": "Deux comptes MT5 : terminal_dedie.bat (terminal MetaTrader reserve au bot)",
+  "date": "2026-10-31 08:30"
  },
- "e": "e3cf6b2f6bebc66a0457b81080b145fe94661fdc32d9c99ff924891230b89464236f25920b61e9e2742ab9e6acec2b2752b1a99655e45f317bae058ec8cb890c"
+ "e": "67b52333e90e939d88255dea6ee3ea4fd62a429fbd1792b98e0c9e2dc3237630bcda7e931b81d4484f126010f10acdddd8cc91cb0eaa3b88a3d190181114f60a"
 }
