@@ -1,12 +1,12 @@
 {
  "p": {
-  "numero": 5,
-  "version": "7.5",
-  "fichier": "maj-7.5.zip",
+  "numero": 6,
+  "version": "7.6",
+  "fichier": "maj-7.6.zip",
   "quand": "week-end",
-  "sha256": "d7aae6997db3a4fb0c4ac7466188bc6792d4a917ac7d456283b3088b1b51becd",
-  "notes": "TP sur le niveau du marche le plus proche, R et message de fin de trade calcules sur le risque reel",
-  "date": "2026-10-30 13:13"
+  "sha256": "8b4c71b2d5b7ec15baa118e45e8e07ee83f5a277e02a796b73151e27964491f8",
+  "notes": "Bilan : R recalcule sur le risque reellement pris (anciens bilans corriges)",
+  "date": "2026-10-31 08:19"
  },
- "e": "f9d139facfbafe55cdde4ee2e4d1a0510843fa749576965d03dac1ec7d22c3ceb859f4d1d1f2187d0fc8ed63afcc66c633f74782c3db0d7e1d3c963a90e2900b"
+ "e": "e3cf6b2f6bebc66a0457b81080b145fe94661fdc32d9c99ff924891230b89464236f25920b61e9e2742ab9e6acec2b2752b1a99655e45f317bae058ec8cb890c"
 }
