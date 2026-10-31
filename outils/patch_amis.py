@@ -5,7 +5,8 @@ Ce patch (sur TON PC, depuis le dossier gimaly) :
   1. gimaly/trading/signaux_distants.py : publication sur le canal personnel de chaque ami actif (amis.json),
      et refus, cote ami, d'un signal destine a un autre canal. Compatible avec les bots deja installes
      (l'ancien canal commun continue de marcher tant que tu ne le coupes pas : amis.py ancien off).
-  2. outils_v7/lancer.py : le lanceur d'un ami installe tout seul son fichier identifiant au demarrage.
+  2. outils_v7/lancer.py : le lanceur d'un ami installe tout seul son fichier identifiant au demarrage, et envoie
+     toutes les 10 minutes un « signe de vie » (retour.py) que la fenetre suivi_amis.py affiche chez toi.
   3. creer_installateur_v7.py : le paquet des amis ne contient PLUS de canal ni de secret des qu'un ami
      existe (amis.py ajouter NOM) ; il contient identifiant.py / identifiant.bat. Option --avec-canal : l'ancien mode.
 Sauvegardes : <fichier>.avant_amis. Idempotent. Rien n'est ecrit si un repere manque (verification avant ecriture).
@@ -13,6 +14,7 @@ Sauvegardes : <fichier>.avant_amis. Idempotent. Rien n'est ecrit si un repere ma
 """
 import base64
 import hashlib
+import re
 import shutil
 import zlib
 from pathlib import Path
@@ -21,87 +23,124 @@ RACINE = Path.cwd()
 SD = RACINE / "gimaly" / "trading" / "signaux_distants.py"
 LANCEUR = RACINE / "outils_v7" / "lancer.py"
 GEN = RACINE / "creer_installateur_v7.py"
-SD_ANCIEN_SHA = "56f16ebe9b617ff74b1baaeebe14e4ffd724e038c44dfab977acd59499c97d06"
-SD_NOUVEAU_SHA = "17f9c52570ce03e86d84b0ae10da16004dfc01438c4bbda3005b49f783f56f61"
+SD_ANCIENS = ("56f16ebe9b617ff74b1baaeebe14e4ffd724e038c44dfab977acd59499c97d06", "17f9c52570ce03e86d84b0ae10da16004dfc01438c4bbda3005b49f783f56f61")      # version d'origine, version intermediaire
+SD_NOUVEAU_SHA = "452e6cbf8ef552278b66eec0b4d6f2e6ea5e006a75a2b6ad625efb34f0ff5ee9"
 
 SD_NOUVEAU = """
-eNqtWm1T21YW/u5fcat8iNQaxSFtNnXj7lDqJMwSQgPZ6Q7DqMK6xjfIkiJdOTCM//s+59yrV9s02Q0fwLKuzvvLc454JPa+3xOz
-NFLJ9ViUer73gr4ZOI5znodJkaW5FpEsRKGuk7C8FTLRuRSxFFcp3RC/hyvhykhpWeaekBq3CrpX8FPhUhXCzeVMZnSg8PzB4DRX
-yUxlUozFbBF+KqWhHYtwxsdEFuY9BrLQIiuvYoWzZS7KRMxCeiLL1UqK6zzUpdLEJw7BL9HzO284ODt6fTIV4UrO6IFCznJIB9o6
-vJbCffP24HDv7M3B/k/PPV8cW3aPcRIyiwRS5DKJoC6MsySpSFDSbSmLAhSgX5roQRwa6XUJq5CYqzBWkRziOFMpcAhMC6HzNBMr
-JcmEGncfq1gkj0O+F8mPIQ6EMGLhizOYXbTpDgfgHeMRCEdkI7lSiaTjZKYkXYqotAYhudMy53tEWSar9E6yxebkPWNpOOGgnOE7
-2O9WhFdFGpciIrZkKOOMMYnw+9HZ+cHJ4ZQYFBoKuJB9JmOwhWfixxwM/DmXcwmDzaQHD83nSg8H1rlk1zDLYkUXM7KbKnSY0KeQ
-zAMhUtiaZYFgv5OFEriVxI1kywpwBNwQmj+RNdJSLiVpKeM0o5AaCPG9cAoH8rc8bKIAUvejYCXzQqUgtXqOJ3RaUshpqIVgZaXt
-+cqm8zAu1FxJhPovhpUkVtNo/6efnv5s2UDEWJrYrOxk8qPN7x9k4SpD4LbrMI/A14SZoXD64bfjoz8+TIfgVP2Q/zOZLyXnBsix
-NGJJcf8x5D/WaJARsaTY9Wq2oFN/gWrAeQQuvr7Vf5nMymVBrI1pW8wicphYplEZw/wxedkmspj+efR62olSNgXEwnVqKkTX2PDt
-W6YkCvJdJDPkF8WBcK8UREr1QnIxQHBEMAYex+ElCfYLcWEL+9kdizyHQxLF9kZJQbEaqCWXqkVYLGJ1VV8uw1n1+SOCrfqcFtUn
-sCxldaEXuQypFNZfqGV9s8xjUPZzkrLQ9beligbzHEmYhZpYC3vjFJeDgc7vxmxRPnKtlmF85yPViUl1slJuIG/JvOKIv57meZqP
-xdafR6jUKlZFqBFMYpHmBbhDLNRAlBBdeMyyT37wfnp8cHQmJsJZaJ0V4ydPqFT6xcIZHLyeBm8P/sS9n0db2MGVaUIFfdwqEVlc
-FlVJK2rHu6iXyElLMKAqfHBMuYRC4A3OD46OjytWz16MRl0+6UxLTVxitVSU5lTzbMXlui7cH0c/P/eqso7oDPNrOTg8np4Fh+9O
-zqd/noP60Qmou47OgtwZCidCeMpgGd4GS5XQF0XMV5nKCrrUNhKDxVO6RNAivILE8cgsJ+egde98KGS+d3CNcHTGwjGO3LNN8cm+
-sx4MBo/E3v/5Y/tl3d9Op+/P3p2cTI+5J+KmN3h1dPjmaPo+OHjLnqQoc9PCRwlUeZr411K7zuujtwfH/+EjjidS1B065i/SpXQ9
-8UTYAw59tLHIn4m7T2nieB70ieRcyCWqg0I9dFkizwQzEu6IqhWKT4j8nMFctnkaud0X+JCHcCZKizcU4UdUVq7dnYZvuhO+tl23
-E1w5LIFmz/xQNAzhpkE/5sqFFrcNNfCpEr3Jp9JAFOBTVIyqPCDkQ7QF160cCZJjR/yA4pNbRT2YFLBIug6DIljEX8jbSKHza9e7
-GL+4tBaKVS4DspzbGGdq6/1YuPfoz2PED1Pl2OOq6KzXDUA6ODw/enUGMwEXySTgowGsp+Yo4a9s8UabplpIJNdDcZ6X0qu1q6sM
-V22EBTnRj9MwKtx2wPhU3gItb7XL2sHxk1q/mgDLhJhPxnDNHOGTQDShEuFGJr7ogAms+7XnQ9UllB/0q4aaC1WoxDR7Nxyi8c80
-MheoKrR0SEXHKtO+YYzV+cqazVvXfKxLSZgh3J7GtXgtM1bUjXi2wLrvzri6DsW/w7iU9vOB1rm6QpzytTfuM6rM/m0yfUbN37XA
-weNICmyfDrhNM3xoxdThDkxBSUP9nDsloWPCVKeHwq3ggMV1tkEQ+iI1W9Fj9XuolKC+mkp+/uH99KtqCulSYwSfFGiKS8C5s6lt
-J5wBUxCMW23zUDj7pGbWCktMCUDNIHV1RzCb+jES2gV5r+9pexQBHMvENVeemKBh7QsZF1KcpIlsB9SU/6AXj6mJJemncCx+O56O
-Rk/FnkX4jOjGgvCuHWTILx301BeDuRhLtYFbwDkFDL4RHfaAcKGY13ha1vDXxMBQpCUTB3tbVvAMYJ40MLiL23ZUGeMWDgI3gHcg
-YOD5n5VeBEmImHD6WJMq6E5/USfd4jNrCOJlnbHpvP/RMTuM/Q0yu/apiXGUoTRxs/COyrF1mOXJVToql1lR3R8ie3Md3Mi7YkK1
-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
+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
 """
 IDENTIFIANT = """
-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
+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
+"""
+RETOUR = """
+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
+lMp56w==
 """
 
 
@@ -129,7 +168,7 @@ def prevoir_signaux():
     sha = hashlib.sha256(actuel).hexdigest()
     if sha == SD_NOUVEAU_SHA:
         return None
-    if sha != SD_ANCIEN_SHA:
+    if sha not in SD_ANCIENS:
         raise SystemExit("signaux_distants.py n'est pas la version attendue (modifie ?) : RIEN ecrit. Envoie-le moi.")
     return decoder(SD_NOUVEAU)
 
@@ -144,17 +183,44 @@ L_AJOUT = '''    try:
     except Exception as exc:  # noqa: BLE001 - l'identifiant ne doit jamais empecher le bot de demarrer
         journal(f"identifiant : erreur ignoree {exc!r}")
 '''
+R_IMPORT = ("import sys\nimport time\n", "import sys\nimport threading\nimport time\n")
+R_COMPTE = ("def compte_demo():\n",
+            "_VERROU_MT5 = threading.Lock()\n\n\ndef compte_demo():\n"
+            "    with _VERROU_MT5:                                  # le signe de vie l'appelle aussi, depuis un autre fil\n"
+            "        return _compte_demo()\n\n\ndef _compte_demo():\n")
+R_INIT = ("    prochaine_maj, en_attente = 0.0, None\n", "    prochaine_maj, en_attente = 0.0, None\n    prochain_retour = 0.0\n")
+R_BOUCLE = "            for nom in PROCESSUS:\n                p = procs.get(nom)\n"
+R_BLOC = '''            if time.time() >= prochain_retour:                   # signe de vie vers l'editeur (voir retour.py)
+                prochain_retour = time.time() + 600
+                try:
+                    import retour
+                    vivant = procs.get("bot") is not None and procs["bot"].poll() is None
+                    etat_bot = "arrete" if not vivant else ("pause" if STOP_TRADES.exists() else "actif")
+                    retour.battement(etat_bot, compte_demo, journal)
+                except Exception as exc:  # noqa: BLE001 - le signe de vie ne doit jamais gener le bot
+                    journal(f"retour : erreur ignoree {exc!r}")
+'''
 
 
 def prevoir_lanceur():
     if not LANCEUR.exists():
         raise SystemExit(f"{LANCEUR} introuvable : lance depuis le dossier gimaly")
     t, crlf = lire(LANCEUR)
-    if "identifiant.auto()" in t:
+    avant = t
+    if "identifiant.auto()" not in t:
+        if t.count(L_ANCRE) != 1:
+            raise SystemExit("outils_v7/lancer.py : repere introuvable : RIEN ecrit")
+        t = t.replace(L_ANCRE, L_ANCRE + L_AJOUT, 1)
+    if "import retour" not in t:
+        for nom, a in (("import", R_IMPORT[0]), ("compte_demo", R_COMPTE[0]), ("init", R_INIT[0]), ("boucle", R_BOUCLE)):
+            if t.count(a) != 1:
+                raise SystemExit(f"outils_v7/lancer.py : repere {nom} introuvable : RIEN ecrit")
+        t = t.replace(R_IMPORT[0], R_IMPORT[1], 1).replace(R_COMPTE[0], R_COMPTE[1], 1)
+        t = t.replace(R_INIT[0], R_INIT[1], 1).replace(R_BOUCLE, R_BLOC + R_BOUCLE, 1)
+    if t == avant:
         return None
-    if t.count(L_ANCRE) != 1:
-        raise SystemExit("outils_v7/lancer.py : repere introuvable : RIEN ecrit")
-    return t.replace(L_ANCRE, L_ANCRE + L_AJOUT, 1), crlf
+    compile(t, str(LANCEUR), "exec")
+    return t, crlf
 
 
 # ------------------------------------------------------------------ 3. creer_installateur_v7.py
@@ -167,6 +233,9 @@ A6 = '    if "--nom" not in sys.argv:\n        sys.argv += ["--nom", "GIMALY-Tra
 
 BLOC = r'''IDENTIFIANT_B64 = (
 @@IDENT_LITERAL@@
+)
+RETOUR_B64 = (
+@@RETOUR_LITERAL@@
 )
 IDENTIFIANT_BAT = ("@echo off\ncd /d %~dp0\n.venv\\Scripts\\python.exe identifiant.py %1\n"
                    "echo.\npause\n")
@@ -181,12 +250,29 @@ Tant qu'il n'est pas installe, le bot ne recoit aucun signal.
 
 
 """
+PARAGRAPHE_SIGNE = """SIGNE DE VIE
+------------
+Toutes les 10 minutes, le bot envoie a l'editeur un petit message : ton pseudo, la version du programme,
+l'etat du bot (actif / pause / arrete), demo ou reel, une empreinte de quelques fichiers du programme et un
+numero d'installation aleatoire. JAMAIS ton numero de compte, ton solde, tes trades ni tes mots de passe.
+Cela sert a savoir qui est connecte et a jour, et a voir si une installation sort du cadre prevu (compte reel,
+fichiers modifies, identifiant partage). Le message est signe avec ton identifiant ; le code est lisible dans
+retour.py. Sans identifiant installe, rien n'est envoye.
+
+
+"""
 
 
 def identifiant_py():
     import base64
     import zlib
     return zlib.decompress(base64.b64decode(IDENTIFIANT_B64)).decode("utf-8")
+
+
+def retour_py():
+    import base64
+    import zlib
+    return zlib.decompress(base64.b64decode(RETOUR_B64)).decode("utf-8")
 
 
 def sans_canal():
@@ -217,23 +303,47 @@ AVEC_CANAL = False
 
 
 '''
+PARA_ANCIEN = 'lm.replace(ancre2, PARAGRAPHE_IDENTIFIANT + PARAGRAPHE_COMPTE + ancre2)'
+PARA_NOUVEAU_EXPR = 'PARAGRAPHE_IDENTIFIANT + PARAGRAPHE_SIGNE + PARAGRAPHE_COMPTE + ancre2'
+PARA_NOUVEAU = 'lm.replace(ancre2, ' + PARA_NOUVEAU_EXPR + ')'
+
+
+def litteral(donnees):
+    blob = base64.b64encode(zlib.compress(donnees, 9)).decode()
+    return "\n".join('    "%s"' % blob[i:i + 100] for i in range(0, len(blob), 100))
 
 
 def prevoir_generateur():
     if not GEN.exists():
         raise SystemExit(f"{GEN} introuvable")
     t, crlf = lire(GEN)
-    if "IDENTIFIANT_B64" in t:
+    id_lit, re_lit = litteral(decoder(IDENTIFIANT)), litteral(decoder(RETOUR))
+    if "RETOUR_B64" in t and id_lit in t and re_lit in t:
         return None
+    if "IDENTIFIANT_B64" in t:                      # patch precedent (sans signe de vie) : mise a niveau
+        if "RETOUR_B64" in t:
+            raise SystemExit("creer_installateur_v7.py : etat inattendu (RETOUR_B64 sans les bons blocs) : RIEN ecrit")
+        m = re.search(r'IDENTIFIANT_B64 = \(\n(?:    "[^"\n]*"\n)+\)\n', t)
+        if m is None or t.count(PARA_ANCIEN) != 1 or t.count('    F["identifiant.bat"] = IDENTIFIANT_BAT\n') != 1 \
+                or t.count("\n\ndef identifiant_py():") != 1:
+            raise SystemExit("creer_installateur_v7.py : version precedente non reconnue : RIEN ecrit. Envoie-le moi.")
+        sig = BLOC.index("PARAGRAPHE_SIGNE = ")
+        fonc = BLOC.index("def retour_py")
+        t = t[:m.start()] + "IDENTIFIANT_B64 = (\n" + id_lit + "\n)\nRETOUR_B64 = (\n" + re_lit + "\n)\n" + t[m.end():]
+        t = t.replace("\n\ndef identifiant_py():",
+                      "\n\n" + BLOC[sig:BLOC.index("def identifiant_py")].rstrip("\n") + "\n\n\n"
+                      + BLOC[fonc:BLOC.index("def sans_canal")].rstrip("\n") + "\n\n\ndef identifiant_py():", 1)
+        t = t.replace('    F["identifiant.bat"] = IDENTIFIANT_BAT\n', '    F["identifiant.bat"] = IDENTIFIANT_BAT\n    F["retour.py"] = retour_py()\n', 1)
+        t = t.replace(PARA_ANCIEN, PARA_NOUVEAU, 1)
+        compile(t, str(GEN), "exec")
+        return t, crlf
     for nom, a in (("A1", A1), ("A2", A2), ("A3", A3), ("A4", A4), ("A5", A5), ("A6", A6)):
         if t.count(a) != 1:
             raise SystemExit(f"creer_installateur_v7.py : repere {nom} introuvable (une fois attendu) : RIEN ecrit")
-    blob = base64.b64encode(zlib.compress(decoder(IDENTIFIANT), 9)).decode()
-    litteral = "\n".join('    "%s"' % blob[i:i + 100] for i in range(0, len(blob), 100))
-    bloc = BLOC.replace("@@IDENT_LITERAL@@", litteral)
+    bloc = BLOC.replace("@@IDENT_LITERAL@@", id_lit).replace("@@RETOUR_LITERAL@@", re_lit)
     t = t.replace(A1, bloc + A1, 1)
-    t = t.replace(A2, A2 + '    F["identifiant.py"] = identifiant_py()\n    F["identifiant.bat"] = IDENTIFIANT_BAT\n', 1)
-    t = t.replace(A3, '    F["LISEZ-MOI-EN-PREMIER.txt"] = lm.replace(ancre2, PARAGRAPHE_IDENTIFIANT + PARAGRAPHE_COMPTE + ancre2)\n', 1)
+    t = t.replace(A2, A2 + '    F["identifiant.py"] = identifiant_py()\n    F["identifiant.bat"] = IDENTIFIANT_BAT\n    F["retour.py"] = retour_py()\n', 1)
+    t = t.replace(A3, '    F["LISEZ-MOI-EN-PREMIER.txt"] = ' + PARA_NOUVEAU + '\n', 1)
     t = t.replace(A4, A4 + "    if sans_canal():\n        v6.lire_canal = lambda: (CANAL_ABSENT, CANAL_ABSENT)\n", 1)
     t = t.replace(A5, "    try:\n        v6.main()\n    finally:\n        pass\n    if sans_canal():\n        retirer_canal_du_paquet(sortie)\n", 1)
     t = t.replace(A6, '    global AVEC_CANAL\n    if "--avec-canal" in sys.argv:\n        sys.argv.remove("--avec-canal")\n        AVEC_CANAL = True\n' + A6, 1)
@@ -260,7 +370,7 @@ def main():
         else:
             ecrire(chemin, res[0], res[1])
             print(f"  {nom} : mis a jour")
-    print("\nTermine. Etape suivante : amis.py ajouter NOM  (pour chacun de tes amis).")
+    print("\nTermine. Etape suivante : amis.py ajouter NOM  (pour chacun de tes amis), puis suivi_amis.bat.")
 
 
 if __name__ == "__main__":

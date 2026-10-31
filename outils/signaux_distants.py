@@ -42,6 +42,7 @@ AGENT = {"User-Agent": "gimaly-signaux/2"}
 
 # ---------------------------------------------------------------- amis (un canal PERSONNEL par ami)
 FICHIER_AMIS = Path(os.environ.get("GIMALY_AMIS") or (Path.home() / "GIMALY" / "trading" / "amis.json"))
+FICHIER_DERNIER_SIGNAL = Path(os.environ.get("GIMALY_DERNIER_SIGNAL") or (Path.home() / "GIMALY" / "trading" / "dernier_signal.txt"))
 
 
 def empreinte(canal):
@@ -260,3 +261,7 @@ class Recepteur:
         for k in [k for k, t in self._vus.items() if time.time() - t > 3600]:
             del self._vus[k]
         self.file.put(payload)
+        try:                                  # pour le signe de vie envoye a l'editeur (retour.py)
+            FICHIER_DERNIER_SIGNAL.write_text(str(round(time.time(), 3)), encoding="utf-8")
+        except OSError:
+            pass

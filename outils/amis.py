@@ -39,6 +39,8 @@ def charger():
         raise SystemExit(f"{FICHIER} est illisible : arret (rien modifie). Une copie existe peut-etre : {FICHIER}.bak")
     d.setdefault("amis", {})
     d.setdefault("ancien_canal", True)
+    for a in d["amis"].values():                     # amis crees avant le signe de vie : on leur ajoute un canal retour
+        a.setdefault("retour", "gimaly-r-" + secrets.token_urlsafe(18))
     return d
 
 
@@ -59,7 +61,9 @@ def ecrire_identifiant(nom, ami):
         "# PERSONNEL : ne le partage avec personne. Il te donne acces aux signaux ; s'il est partage,\n"
         "# il pourra etre coupe sans prevenir.\n"
         f"trading_signaux_canal: {ami['canal']}\n"
-        f"trading_signaux_secret: {ami['secret']}\n", encoding="utf-8", newline="\r\n")
+        f"trading_signaux_secret: {ami['secret']}\n"
+        f"trading_signaux_retour: {ami['retour']}\n"
+        f"trading_ami: {nom}\n", encoding="utf-8", newline="\r\n")
     return f
 
 
@@ -87,6 +91,7 @@ def main(argv):
         if any(n.lower() == nom.lower() for n in d["amis"]):
             raise SystemExit(f"{nom} existe deja (amis.py identifiant {nom} pour recreer son fichier)")
         d["amis"][nom] = {"canal": "gimaly-" + secrets.token_urlsafe(18), "secret": secrets.token_hex(16),
+                          "retour": "gimaly-r-" + secrets.token_urlsafe(18),
                           "actif": True, "cree": time.strftime("%Y-%m-%d %H:%M")}
         enregistrer(d)
         f = ecrire_identifiant(nom, d["amis"][nom])
@@ -107,6 +112,7 @@ def main(argv):
                               else "retire : il ne recoit plus rien (effet immediat sur le prochain signal)."))
     elif cmd == "identifiant":
         n = trouver(d, args[0] if args else "")
+        enregistrer(d)                                # fige le canal retour s'il vient d'etre cree
         print(f"Fichier : {ecrire_identifiant(n, d['amis'][n])}")
     elif cmd == "ancien":
         if not args or args[0].lower() not in ("on", "off"):

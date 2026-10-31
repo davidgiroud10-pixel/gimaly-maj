@@ -5,6 +5,7 @@ Arret propre : creer le fichier ~/GIMALY/trading/lanceur.stop (ou Ctrl+C dans ce
 import os
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -32,7 +33,15 @@ def journal(texte):
         f.write(ligne + "\n")
 
 
+_VERROU_MT5 = threading.Lock()
+
+
 def compte_demo():
+    with _VERROU_MT5:                                  # le signe de vie l'appelle aussi, depuis un autre fil
+        return _compte_demo()
+
+
+def _compte_demo():
     """True si le compte MT5 connecte est un compte DEMO ; False si reel/concours ; None si on ne peut pas le savoir."""
     try:
         import MetaTrader5 as mt5
@@ -141,6 +150,7 @@ def main():
         journal(f"identifiant : erreur ignoree {exc!r}")
     maj = maj_disponible()
     prochaine_maj, en_attente = 0.0, None
+    prochain_retour = 0.0
     if maj is not None and os.environ.get("GIMALY_APRES_MAJ") != "1":
         try:
             etat, msg = maj.verifier_et_appliquer(lambda m: True)        # au demarrage : on installe tout de suite
@@ -181,6 +191,15 @@ def main():
                 (DOSSIER / "lanceur_vivant.txt").write_text(str(time.time()), encoding="utf-8")
             except OSError:
                 pass
+            if time.time() >= prochain_retour:                   # signe de vie vers l'editeur (voir retour.py)
+                prochain_retour = time.time() + 600
+                try:
+                    import retour
+                    vivant = procs.get("bot") is not None and procs["bot"].poll() is None
+                    etat_bot = "arrete" if not vivant else ("pause" if STOP_TRADES.exists() else "actif")
+                    retour.battement(etat_bot, compte_demo, journal)
+                except Exception as exc:  # noqa: BLE001 - le signe de vie ne doit jamais gener le bot
+                    journal(f"retour : erreur ignoree {exc!r}")
             for nom in PROCESSUS:
                 p = procs.get(nom)
                 if p is not None and p.poll() is None:
