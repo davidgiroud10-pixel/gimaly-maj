@@ -187,6 +187,24 @@ class Suivi:
             _ecrire_json(FICHIER_ATTR, self.attr)
         return ami
 
+    def supprimer(self, nom):
+        """Efface un ami deja retire : liste, etat de suivi et attributions envoyees (l'installation redevient « a nommer »)."""
+        import amis
+        amis.supprimer(nom)
+        with self.verrou:
+            self.etat.pop(nom, None)
+            try:
+                tmp = FICHIER_ETAT.with_name(FICHIER_ETAT.name + ".tmp")
+                tmp.write_text(json.dumps(self.etat, ensure_ascii=False), encoding="utf-8")
+                os.replace(tmp, FICHIER_ETAT)
+            except OSError:
+                pass
+            for iid in [i for i, a in self.attr.items() if a.get("nom") == nom]:
+                del self.attr[iid]
+            _ecrire_json(FICHIER_ATTR, self.attr)
+        self._gen += 1                                          # coupe l'ecoute de cet ami
+        self._threads.clear()
+
     def republier(self, maintenant=None, relais=None):
         """Renvoie l'attribution (nouveau message) aux amis nommes qui n'ont pas encore donne signe sur leur canal personnel."""
         maintenant = maintenant or time.time()
@@ -475,10 +493,12 @@ def fenetre():
     b_nommer = QPushButton("NOMMER L'INSTALLATION SELECTIONNEE")
     b_retirer = QPushButton("RETIRER L'AMI SELECTIONNE")
     b_remettre = QPushButton("REMETTRE")
+    b_supprimer = QPushButton("SUPPRIMER")
     bas.addWidget(b_actualiser)
     bas.addWidget(b_nommer)
     bas.addWidget(b_retirer)
     bas.addWidget(b_remettre)
+    bas.addWidget(b_supprimer)
     v.addLayout(bas)
 
     def rafraichir():
@@ -572,6 +592,21 @@ def fenetre():
             msg.setText(f"Impossible de modifier amis.json : {exc}")
         rafraichir()
 
+    def supprimer():
+        r = t.currentRow()
+        if r < 0:
+            msg.setText("Selectionne d'abord un ami dans la liste.")
+            return
+        nom = t.item(r, 0).text()
+        if QMessageBox.question(w, "Supprimer", f"Supprimer {nom} definitivement de la liste ?\n(Il doit deja etre retire.)") != QMessageBox.Yes:
+            return
+        try:
+            suivi.supprimer(nom)
+            msg.setText(f"{nom} supprime de la liste.")
+        except (SystemExit, Exception) as exc:  # noqa: BLE001
+            msg.setText(f"Impossible : {exc}")
+        rafraichir()
+
     def actualiser():
         suivi.actualiser()
         msg.setText("Relecture du relais en cours...")
@@ -581,6 +616,7 @@ def fenetre():
     b_nommer.clicked.connect(nommer)
     b_retirer.clicked.connect(lambda: changer(False))
     b_remettre.clicked.connect(lambda: changer(True))
+    b_supprimer.clicked.connect(supprimer)
     minuteur = QTimer(w)
     minuteur.timeout.connect(rafraichir)
     minuteur.start(5000)

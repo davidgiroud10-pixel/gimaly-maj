@@ -9,6 +9,7 @@ Usage (depuis le dossier gimaly) :
   .\\.venv\\Scripts\\python.exe amis.py liste               les amis, actifs ou retires
   .\\.venv\\Scripts\\python.exe amis.py retirer NOM         coupe cet ami (il ne recoit plus rien)
   .\\.venv\\Scripts\\python.exe amis.py reactiver NOM       le remet
+  .\\.venv\\Scripts\\python.exe amis.py supprimer NOM       l'efface de la liste (seulement s'il est deja retire)
   .\\.venv\\Scripts\\python.exe amis.py identifiant NOM     recree le fichier identifiant de cet ami
   .\\.venv\\Scripts\\python.exe amis.py ancien off|on       coupe / remet l'ANCIEN canal commun (a couper quand
                                                             tous tes amis ont installe leur identifiant)
@@ -98,6 +99,17 @@ def creer(nom):
     return d["amis"][nom], ecrire_identifiant(nom, d["amis"][nom])
 
 
+def supprimer(nom):
+    """Efface un ami DEJA RETIRE de la liste (amis.json, copie dans amis.json.bak). Refuse un ami actif."""
+    d = charger()
+    n = trouver(d, nom)
+    if d["amis"][n].get("actif", True):
+        raise SystemExit(f"{n} est encore actif : retire-le d'abord (amis.py retirer {n}), puis supprime-le.")
+    del d["amis"][n]
+    enregistrer(d)
+    return n
+
+
 def main(argv):
     if not argv or argv[0] in ("-h", "--help"):
         print(__doc__)
@@ -123,6 +135,9 @@ def main(argv):
         enregistrer(d)
         print(f"OK : {n} " + ("remis : il recoit de nouveau les signaux." if cmd == "reactiver"
                               else "retire : il ne recoit plus rien (effet immediat sur le prochain signal)."))
+    elif cmd == "supprimer":
+        n = supprimer(args[0] if args else "")
+        print(f"OK : {n} supprime de la liste (copie de securite : {FICHIER.name}.bak).")
     elif cmd == "identifiant":
         n = trouver(d, args[0] if args else "")
         enregistrer(d)                                # fige le canal retour s'il vient d'etre cree
