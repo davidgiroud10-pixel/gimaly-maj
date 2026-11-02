@@ -1,12 +1,12 @@
 {
  "p": {
-  "numero": 11,
-  "version": "7.11",
-  "fichier": "maj-7.11.zip",
-  "quand": "week-end",
-  "sha256": "6779dad5ed6ea1ee2a3fc28e2d58de79c36eb3d621e59039a1f0e9da4da67132",
+  "numero": 12,
+  "version": "7.12",
+  "fichier": "maj-7.12.zip",
+  "quand": "immediat",
+  "sha256": "1a26c8ab844182266fafbfe3204dee1b314a1bc51d756abafcbeeffabd5e9e00",
   "notes": "Reparation automatique du fichier de reglages, alerte si illisible",
-  "date": "2026-11-02 12:03"
+  "date": "2026-11-02 12:06"
  },
- "e": "43483d4958b48134126cb9ec4e05fd89578d1f18a765803a66a6422c51b0f3699a211fab66ed35e701ee18669c437b1d64ce476ef830df604a6447c2f11fcd08"
+ "e": "cbf2b7c4885f415c484dea7a96e85f070d3b8abb405aaa011d49f0e25a0a865011be8e33fe51949798a99fc39353d8f6f555dc80e4c3b4bded70e35a0f8c4c0c"
 }
