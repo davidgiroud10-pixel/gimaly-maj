@@ -1,12 +1,12 @@
 {
  "p": {
-  "numero": 10,
-  "version": "7.10",
-  "fichier": "maj-7.10.zip",
+  "numero": 11,
+  "version": "7.11",
+  "fichier": "maj-7.11.zip",
   "quand": "week-end",
-  "sha256": "9a50ea1c90ccd12881a7f2db9a908660094e720d034f2e5dff63f9547a17468c",
-  "notes": "Identifiant personnel automatique",
-  "date": "2026-10-31 11:29"
+  "sha256": "6779dad5ed6ea1ee2a3fc28e2d58de79c36eb3d621e59039a1f0e9da4da67132",
+  "notes": "Reparation automatique du fichier de reglages, alerte si illisible",
+  "date": "2026-11-02 12:03"
  },
- "e": "28447d20f1ccb3ae748e949139886b90960a426c6c4e9a8f316da5b3f4db59fcf880b9f761e8a1668f1892f9b3b1ec8d2dba84077e68e0b670a132815e60eb0d"
+ "e": "43483d4958b48134126cb9ec4e05fd89578d1f18a765803a66a6422c51b0f3699a211fab66ed35e701ee18669c437b1d64ce476ef830df604a6447c2f11fcd08"
 }
