@@ -81,7 +81,9 @@ def ecrire_config(valeur):
     crlf = "\r\n" in texte
     texte = texte.replace("\r\n", "\n")
     motif = re.compile(r"(?m)^trading_mt5_chemin:[^\n]*$")
-    ligne = f'trading_mt5_chemin: "{valeur}"' if valeur else "trading_mt5_chemin: \"\""
+    # guillemets SIMPLES : en YAML, "C:\\Program Files" (guillemets doubles) contient un \\P invalide et rend TOUT le fichier
+    # illisible (le bot retombe sur ses valeurs par defaut : inactif, pas de signaux distants)
+    ligne = "trading_mt5_chemin: '" + valeur.replace("'", "''") + "'" if valeur else "trading_mt5_chemin: ''"
     if motif.search(texte):
         texte = motif.sub(lambda m: ligne, texte, count=1)
     else:
