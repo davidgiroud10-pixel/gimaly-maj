@@ -1,12 +1,12 @@
 {
  "p": {
-  "numero": 14,
-  "version": "7.14",
-  "fichier": "maj-7.14.zip",
+  "numero": 15,
+  "version": "7.15",
+  "fichier": "maj-7.15.zip",
   "quand": "immediat",
-  "sha256": "e63b4bcdd03688347d06179c52c21369dfdf9a3b8d22f3a53c87b92d6f3d3c96",
-  "notes": "Correction du calcul des lots (valeur reelle d'un lot demandee a MetaTrader)",
-  "date": "2026-11-02 14:07"
+  "sha256": "0bcba5852589ad2954383c538ddcd503eca7838493fd2ae8ed8071167b4aa22c",
+  "notes": "Signe de vie sur evenements, mise a jour sans gener un trade, ordre signe de mise a jour",
+  "date": "2026-11-02 14:42"
  },
- "e": "8a22d6be86aa9ed67e5cf7f5556b495c88e6e09b46172edf0ba7d0f5fd8dd10923b030f8d3d36b0f881adf34f8ceabe32500a3604433090e39941296d0a07101"
+ "e": "5fb932fc4acebdf12ed4b21f6a3f9e053d74040739e071809c56b4d3fb5dceb487327c8e978ad715c1fd08f21f408794999d7a3f540288d05c492bb2817c0401"
 }
