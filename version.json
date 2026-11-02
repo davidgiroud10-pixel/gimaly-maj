@@ -1,12 +1,12 @@
 {
  "p": {
-  "numero": 15,
-  "version": "7.15",
-  "fichier": "maj-7.15.zip",
-  "quand": "immediat",
-  "sha256": "0bcba5852589ad2954383c538ddcd503eca7838493fd2ae8ed8071167b4aa22c",
-  "notes": "Signe de vie sur evenements, mise a jour sans gener un trade, ordre signe de mise a jour",
-  "date": "2026-11-02 14:42"
+  "numero": 16,
+  "version": "7.16",
+  "fichier": "maj-7.16.zip",
+  "quand": "week-end",
+  "sha256": "81b5c432c2103be1172d05ac95118d0be8cb3e8e27b24377caecc7fd0512de45",
+  "notes": "Garde-fou : le bot ne trade pas si la valeur du lot est incertaine",
+  "date": "2026-11-02 19:00"
  },
- "e": "5fb932fc4acebdf12ed4b21f6a3f9e053d74040739e071809c56b4d3fb5dceb487327c8e978ad715c1fd08f21f408794999d7a3f540288d05c492bb2817c0401"
+ "e": "034511a678328114d8ff6af4348583d5f25e9b74284c86279c5534812a34710a408e19bffbd55ad282265a69bf2f16ee3eab75fe07470af63df751b3c121b50a"
 }
