@@ -376,7 +376,7 @@ def evaluer(nom, e, actif, num_pub, emp_pub, maintenant, migration=None):
     l["statut"] = "en ligne" if age <= EN_LIGNE else "hors ligne"
     l["version"] = str(p.get("ver", "?"))
     l["compte"] = {"demo": "DEMO", "reel": "REEL", "inconnu": "?"}.get(p.get("compte"), "?")
-    l["bot"] = {"actif": "actif", "pause": "en pause", "arrete": "arrete"}.get(p.get("etat"), "?")
+    l["bot"] = {"actif": "actif", "pause": "en pause", "arrete": "arrete", "config": "CONFIG ILLISIBLE"}.get(p.get("etat"), "?")
     if p.get("dernier"):
         l["signal"] = ago(maintenant - float(p["dernier"]))
     num = p.get("num")
@@ -402,6 +402,8 @@ def evaluer(nom, e, actif, num_pub, emp_pub, maintenant, migration=None):
         al.append(("orange", f"Hors ligne depuis {ago(age).replace('il y a ', '')}"))
     if l["statut"] == "en ligne" and p.get("etat") == "arrete":
         al.append(("orange", "Bot arrete"))
+    if l["statut"] == "en ligne" and p.get("etat") == "config":
+        al.append(("rouge", "Fichier de reglages illisible : le bot ne trade pas (a me faire reparer)"))
     return l
 
 
