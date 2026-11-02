@@ -5,7 +5,9 @@ l'historique SANS les trades de cette tranche. Lecture seule : rien n'est modifi
 
 Usage (dossier du programme) :
   .\.venv\Scripts\python.exe analyse_stops.py                 tout l'historique
-  .\.venv\Scripts\python.exe analyse_stops.py 01/10/2026      a partir d'une date (jj/mm/aaaa)"""
+  .\.venv\Scripts\python.exe analyse_stops.py 01/10/2026      a partir d'une date (jj/mm/aaaa)
+  .\.venv\Scripts\python.exe analyse_stops.py --genre scalp_keltner_large   un seul genre de signal
+  (les deux options se combinent)"""
 import csv
 import sys
 from datetime import datetime
@@ -30,6 +32,12 @@ def jour(s):
 
 
 def main(argv):
+    argv = list(argv)
+    genre = None
+    if "--genre" in argv:
+        i = argv.index("--genre")
+        genre = argv[i + 1] if i + 1 < len(argv) else None
+        del argv[i:i + 2]
     depuis = jour(argv[0]) if argv else None
     if not FICHIER.exists():
         print(f"{FICHIER} introuvable.")
@@ -47,7 +55,10 @@ def main(argv):
         pe, sl = nombre(l.get("pe")), nombre(l.get("sl"))
         if None in (r, g, pe, sl) or pe == sl:
             continue
-        res.append((abs(pe - sl), r, g, (l.get("genre") or l.get("signal") or "?"), d))
+        gn = l.get("genre") or l.get("signal") or "?"
+        if genre and gn != genre:
+            continue
+        res.append((abs(pe - sl), r, g, gn, d))
     if not res:
         print("Aucun trade termine exploitable.")
         return 0
@@ -67,7 +78,9 @@ def main(argv):
     print("\nPar genre de signal :")
     for nom in sorted({x[3] for x in res}):
         t = [x for x in res if x[3] == nom]
-        print(f"  {nom:<28} {len(t):>4} trades | R {sum(x[1] for x in t):+.2f} | devise {sum(x[2] for x in t):+.0f}")
+        ds = [x[4] for x in t if x[4]]
+        pl = f" | du {min(ds):%d/%m} au {max(ds):%d/%m}" if ds else ""
+        print(f"  {nom:<28} {len(t):>4} trades | R {sum(x[1] for x in t):+.2f} | devise {sum(x[2] for x in t):+.0f}{pl}")
     print("\nLecture : si 'sans cette tranche' est meilleur que le total, la tranche fait perdre. Prudence : moins de ~50 trades")
     print("par tranche = chiffres peu fiables ; a confirmer sur plusieurs semaines avant de changer le bot.")
     return 0
