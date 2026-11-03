@@ -101,7 +101,7 @@ def main(argv):
     tous = [x[3] for x in fantomes]
     print(f"{len(fantomes)} fantomes termines | depuis le {depuis:%d/%m/%Y} | R moyen de l'ensemble : {statistics.fmean(tous):+.3f}")
     print(f"  (groupes de moins de {mini} fantomes : pas d'avis ; --min pour changer)\n")
-    entete = f"  {"groupe":<64} {'n':>5} {'gagn.':>7} {'R cumul':>8} {'R moy':>6}  {'intervalle 95 %':<16} verdict"
+    entete = f"  {'groupe':<64} {'n':>5} {'gagn.':>7} {'R cumul':>8} {'R moy':>6}  {'intervalle 95 %':<16} verdict"
 
     par_motif = {}
     for _, _, ms, r in fantomes:
