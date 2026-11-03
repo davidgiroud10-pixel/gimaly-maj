@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-r"""Correctif avis IA : les modeles recents « reflechissent » avant de repondre, ce qui consommait les 200 jetons autorises et
+r"""Correctif avis IA (v2 : le fichier ia_cle.txt prime sur la variable ANTHROPIC_API_KEY ; l'erreur du journal indique l'origine de la cle). Les modeles recents « reflechissent » avant de repondre, ce qui consommait les 200 jetons autorises et
 coupait la reponse (erreur JSONDecodeError). Le module avis_ia.py est remplace par une version qui autorise 1500 jetons et lit la
 reponse meme si elle est tronquee. Sauvegarde avis_ia.py.avant_fix. Idempotent. Usage (dossier gimaly) :
   .\.venv\Scripts\python.exe patch_ia_fix.py"""
@@ -38,13 +38,24 @@ CONSIGNE = (
 
 
 def _cle():
-    c = os.environ.get("ANTHROPIC_API_KEY", "").strip()
-    if c:
-        return c
+    # le fichier ia_cle.txt a la priorite (une variable ANTHROPIC_API_KEY heritee du lanceur peut etre une ancienne cle)
     try:
-        return (DOSSIER / "ia_cle.txt").read_text(encoding="utf-8").strip()
+        c = (DOSSIER / "ia_cle.txt").read_text(encoding="utf-8-sig").strip()
+        if c:
+            return c
     except OSError:
-        return ""
+        pass
+    return os.environ.get("ANTHROPIC_API_KEY", "").strip()
+
+
+def _source():
+    # pour le journal : d'ou vient la cle utilisee (4 derniers caracteres seulement)
+    c = _cle()
+    try:
+        du_fichier = c == (DOSSIER / "ia_cle.txt").read_text(encoding="utf-8-sig").strip()
+    except OSError:
+        du_fichier = False
+    return f"cle {'du fichier' if du_fichier else 'de la variable ANTHROPIC_API_KEY'} ...{c[-4:]}"
 
 
 def _ecrire(ligne):
@@ -91,7 +102,7 @@ def _tache(donnees, modele, base, log):
         _ecrire({**base, "avis": avis, "confiance": conf, "raison": raison, "modele": modele, "secondes": sec})
     except Exception as exc:
         try:
-            log(f"avis IA indisponible : {exc!r}"[:200])
+            log(f"avis IA indisponible : {exc!r} ({_source()})"[:240])
         except Exception:
             pass
 

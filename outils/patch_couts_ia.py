@@ -46,13 +46,24 @@ CONSIGNE = (
 
 
 def _cle():
-    c = os.environ.get("ANTHROPIC_API_KEY", "").strip()
-    if c:
-        return c
+    # le fichier ia_cle.txt a la priorite (une variable ANTHROPIC_API_KEY heritee du lanceur peut etre une ancienne cle)
     try:
-        return (DOSSIER / "ia_cle.txt").read_text(encoding="utf-8").strip()
+        c = (DOSSIER / "ia_cle.txt").read_text(encoding="utf-8-sig").strip()
+        if c:
+            return c
     except OSError:
-        return ""
+        pass
+    return os.environ.get("ANTHROPIC_API_KEY", "").strip()
+
+
+def _source():
+    # pour le journal : d'ou vient la cle utilisee (4 derniers caracteres seulement)
+    c = _cle()
+    try:
+        du_fichier = c == (DOSSIER / "ia_cle.txt").read_text(encoding="utf-8-sig").strip()
+    except OSError:
+        du_fichier = False
+    return f"cle {'du fichier' if du_fichier else 'de la variable ANTHROPIC_API_KEY'} ...{c[-4:]}"
 
 
 def _ecrire(ligne):
@@ -99,7 +110,7 @@ def _tache(donnees, modele, base, log):
         _ecrire({**base, "avis": avis, "confiance": conf, "raison": raison, "modele": modele, "secondes": sec})
     except Exception as exc:
         try:
-            log(f"avis IA indisponible : {exc!r}"[:200])
+            log(f"avis IA indisponible : {exc!r} ({_source()})"[:240])
         except Exception:
             pass
 
