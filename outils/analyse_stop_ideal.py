@@ -1,11 +1,13 @@
 # -*- coding: utf-8 -*-
-r"""Quelle largeur de stop aurait ete la meilleure ? Test retroactif avec les bougies M1 de MetaTrader (lecture seule).
-Pour chaque trade termine, on rejoue le marche minute par minute depuis l'entree, avec le MEME objectif (tp1) et plusieurs
-largeurs de stop (15, 20, 25, 30, 35, 40, 50 pips ; 10 pips = 1 $). Un stop plus large = lot plus petit (risque constant),
-donc le resultat est compte en R : objectif atteint = distance objectif / largeur, stop touche = -1 R.
-Si l'objectif et le stop sont dans la meme bougie, on compte le stop (hypothese prudente).
-Un controle compare la simulation, avec le stop reel de chaque trade, au resultat reel (gagnant / perdant).
-Approximations : pas de spread, pas de gestion en cours de trade (pas de deplacement de stop, pas de TP2) ; a prendre comme un ordre de grandeur.
+r"""Faut-il relever le stop MINIMUM du bot (trading_sl_min_pips, 15 pips aujourd'hui) ? Test retroactif avec les bougies M1 de
+MetaTrader (lecture seule). Pour chaque trade termine, on rejoue le marche minute par minute depuis l'entree, avec le MEME objectif
+(tp1) et un stop = le plus grand entre le stop reel du trade et un plancher de 15, 20, 25, 30, 35, 40 ou 50 pips (10 pips = 1 $).
+Stop plus large = lot plus petit (risque constant), donc le resultat est compte en R : objectif atteint = distance objectif / stop,
+stop touche = -1 R. Si l'objectif et le stop sont dans la meme bougie, on compte le stop (hypothese prudente).
+Avant tout, le script verifie que les bougies tombent bien a l'heure des trades (le prix d'entree doit etre dans la bougie d'entree)
+et corrige tout seul un decalage horaire d'une ou plusieurs heures. Il compare ensuite la simulation avec le stop reel au resultat reel
+(gagnant / perdant) : si ce controle est bas, les chiffres ne sont pas fiables et le script le dit.
+Approximations : pas de spread, pas de gestion en cours de trade (pas de deplacement de stop, pas de TP2). Ordre de grandeur seulement.
 Necessite MetaTrader 5 ouvert (celui du bot). Rien n'est modifie, aucun ordre.
 
 Usage (dossier du programme) :
@@ -19,8 +21,9 @@ from pathlib import Path
 
 FICHIER = Path.home() / "GIMALY" / "trading" / "trades_bot.csv"
 SYMBOLE = "XAUUSD"
-LARGEURS_PIPS = (15, 20, 25, 30, 35, 40, 50)
-DUREE_MAX_MIN = 120
+PLANCHERS_PIPS = (15, 20, 25, 30, 35, 40, 50)
+DUREE_MAX_S = 120 * 60
+DECALAGES_H = range(-4, 5)
 
 
 def nombre(x):
@@ -72,6 +75,24 @@ def rejouer(barres, sens, pe, stop, tp1):
     return None
 
 
+def barres_apres(brut, debut_s, fin_s):
+    """brut : liste (heure_serveur, haut, bas), triee. Barres dont l'heure est dans [debut_s, fin_s]."""
+    return [(h, b) for t, h, b in brut if debut_s <= t <= fin_s]
+
+
+def alignement(donnees, decalage_h):
+    """Part des trades dont le prix d'entree est dans la bougie M1 d'entree (a 0,5 $ pres)."""
+    bons = total = 0
+    for reel, sens, pe, sl, tp1, etat, r, brut in donnees:
+        cible = reel + 3600 * decalage_h
+        for t, h, b in brut:
+            if cible - 60 < t <= cible:
+                total += 1
+                bons += (b - 0.5) <= pe <= (h + 0.5)
+                break
+    return (bons / total) if total else 0.0, total
+
+
 def main(argv, mt5=None):
     argv = list(argv)
     genre = "scalp_keltner_large"
@@ -108,39 +129,52 @@ def main(argv, mt5=None):
         tick = mt5.symbol_info_tick(SYMBOLE)
         decalage = (tick.time - time.time()) if tick and tick.time else 0.0
         for t_ouv, sens, pe, sl, tp1, etat, r in trades:
-            reel = t_ouv.timestamp() + decalage
-            m1 = mt5.copy_rates_range(SYMBOLE, mt5.TIMEFRAME_M1, datetime.fromtimestamp(reel - 60),
-                                      datetime.fromtimestamp(reel + DUREE_MAX_MIN * 60))
-            if m1 is None or len(m1) < 5:
+            reel = t_ouv.timestamp() + decalage          # heure du trade, a l'heure du serveur MetaTrader
+            m1 = mt5.copy_rates_range(SYMBOLE, mt5.TIMEFRAME_M1, datetime.fromtimestamp(reel - 5 * 3600),
+                                      datetime.fromtimestamp(reel + 5 * 3600 + DUREE_MAX_S))
+            if m1 is None or len(m1) < 10:
                 continue
-            barres = [(float(x["high"]), float(x["low"])) for x in m1]
-            donnees.append((sens, pe, sl, tp1, etat, r, barres))
+            brut = sorted((int(x["time"]), float(x["high"]), float(x["low"])) for x in m1)
+            donnees.append((reel, sens, pe, sl, tp1, etat, r, brut))
     finally:
         mt5.shutdown()
     if not donnees:
         print("Aucune bougie exploitable (historique manquant dans MetaTrader : ouvre un graphique M1 de l'or et reessaie).")
         return 0
-    # controle : simulation avec le stop reel contre le resultat reel
+    scores = {h: alignement(donnees, h) for h in DECALAGES_H}
+    h_ok = max(scores, key=lambda h: scores[h][0])
+    part, _n = scores[h_ok]
+    print(f"{len(donnees)} trades rejoues | signal : {genre} | depuis le {depuis:%d/%m/%Y}")
+    print(f"Alignement des bougies : {100 * part:.0f} % des trades ont leur prix d'entree dans la bougie d'entree"
+          f" (decalage horaire detecte : {h_ok:+d} h).")
+    if part < 0.7:
+        print("ATTENTION : alignement trop faible, les bougies ne correspondent pas aux trades (autre serveur / autre symbole ?). "
+              "Resultats non fiables : envoie-moi cette sortie.")
+    prepares = []
+    for reel, sens, pe, sl, tp1, etat, r, brut in donnees:
+        debut = reel + 3600 * h_ok - 60
+        prepares.append((sens, pe, abs(pe - sl), tp1, etat, r, barres_apres(brut, debut, debut + 60 + DUREE_MAX_S)))
     accord = total = 0
-    for sens, pe, sl, tp1, etat, r, barres in donnees:
-        sim = rejouer(barres, sens, pe, abs(pe - sl), tp1)
+    for sens, pe, stop, tp1, etat, r, barres in prepares:
+        sim = rejouer(barres, sens, pe, stop, tp1)
         if sim is None:
             continue
         total += 1
         accord += (sim == "tp") == (r > 0)
-    print(f"{len(donnees)} trades rejoues | signal : {genre} | depuis le {depuis:%d/%m/%Y}")
     if total:
         print(f"Controle : avec le stop reel, la simulation retrouve le resultat reel dans {100 * accord / total:.0f} % des cas "
-              f"({accord}/{total}). Plus c'est haut, plus les chiffres ci-dessous sont credibles.\n")
-    reel_r = sum(x[5] for x in donnees)
-    print(f"Resultat REEL de ces trades : {reel_r:+.2f} R ({reel_r / len(donnees):+.2f} R par trade)\n")
-    print(f"  {'stop':>8} {'rejoues':>8} {'gagn.':>7} {'R cumul':>8} {'R moy':>6}   non resolus")
-    for pips in LARGEURS_PIPS:
-        stop = pips / 10.0
-        n = g = 0
+              f"({accord}/{total}). Au-dessus de 80 %, les chiffres sont credibles ; en dessous, a prendre avec beaucoup de prudence.\n")
+    reel_r = sum(x[5] for x in prepares)
+    print(f"Resultat REEL de ces trades : {reel_r:+.2f} R ({reel_r / len(prepares):+.2f} R par trade)\n")
+    print(f"  {'plancher':>9} {'rejoues':>8} {'gagn.':>7} {'R cumul':>8} {'R moy':>6} {'stops changes':>14}   non resolus")
+    for pips in PLANCHERS_PIPS:
+        plancher = pips / 10.0
+        n = g = changes = non = 0
         r_tot = 0.0
-        non = 0
-        for sens, pe, sl, tp1, etat, r, barres in donnees:
+        for sens, pe, stop_reel, tp1, etat, r, barres in prepares:
+            stop = max(stop_reel, plancher)
+            if stop > stop_reel + 1e-9:
+                changes += 1
             sim = rejouer(barres, sens, pe, stop, tp1)
             if sim is None:
                 non += 1
@@ -152,9 +186,9 @@ def main(argv, mt5=None):
             else:
                 r_tot -= 1.0
         if n:
-            print(f"  {pips:>5} pips {n:>8} {100 * g / n:>6.0f}% {r_tot:>+8.2f} {r_tot / n:>+6.2f}   {non}")
-    print("\nLecture : cherche la ligne dont le R moyen est nettement meilleur. Un ecart faible entre deux largeurs n'est pas significatif.")
-    print("Cette simulation ignore le spread et la gestion du trade en cours : ordre de grandeur seulement, a confirmer avant de changer quoi que ce soit.")
+            print(f"  {pips:>5} pips {n:>8} {100 * g / n:>6.0f}% {r_tot:>+8.2f} {r_tot / n:>+6.2f} {changes:>14}   {non}")
+    print("\nLecture : le plancher actuel est 15 pips (premiere ligne). Cherche un plancher dont le R moyen est nettement meilleur ;")
+    print("un ecart faible entre deux lignes n'est pas significatif. Ignore spread et gestion du trade : ordre de grandeur seulement.")
     return 0
 
 
