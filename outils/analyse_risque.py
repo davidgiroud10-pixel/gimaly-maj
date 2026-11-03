@@ -9,8 +9,11 @@ Le risque par trade = |gain / R| (R = gain divise par le risque reellement pris,
 
 Usage (dossier du programme) :
   .\.venv\Scripts\python.exe analyse_risque.py                       depuis le 20/10/2026, tous les signaux
-  .\.venv\Scripts\python.exe analyse_risque.py 03/11/2026 --genre scalp_keltner_large"""
+  .\.venv\Scripts\python.exe analyse_risque.py 03/11/2026 --genre scalp_keltner_large
+  .\.venv\Scripts\python.exe analyse_risque.py 20/10/2026 --genre scalp_keltner_large --stop 2.5     zoom sur les stops d'environ 25 pips
+  (--stop 2.5 = de 2,2 a 2,8 $ ; --stop 2.3 2.7 = bornes au choix, en dollars, 10 pips = 1 $)"""
 import csv
+import random
 import statistics
 import sys
 from datetime import datetime
@@ -55,6 +58,19 @@ def main(argv):
         i = argv.index("--genre")
         genre = argv[i + 1] if i + 1 < len(argv) else genre
         del argv[i:i + 2]
+    zoom = None
+    if "--stop" in argv:
+        i = argv.index("--stop")
+        vals = []
+        j = i + 1
+        while j < len(argv) and len(vals) < 2 and nombre(argv[j]) is not None:
+            vals.append(nombre(argv[j]))
+            j += 1
+        if not vals:
+            print("--stop attend 1 ou 2 nombres (dollars), ex. --stop 2.5")
+            return 1
+        zoom = (vals[0] - 0.3, vals[0] + 0.3) if len(vals) == 1 else (min(vals), max(vals))
+        del argv[i:j]
     try:
         depuis = datetime.strptime(argv[0], "%d/%m/%Y") if argv else datetime(2026, 10, 20)
     except ValueError:
@@ -88,6 +104,28 @@ def main(argv):
     print("\n  Les 5 trades qui pesent le plus en argent :")
     for t in sorted(trades, key=lambda x: -abs(x[3]))[:5]:
         print(f"    {t[0]:%d/%m} {t[1]:<22} stop {t[2]:5.2f} $  R {t[4]:+5.2f}  argent {t[3]:+9,.0f}")
+    if zoom:
+        bande = [x for x in trades if zoom[0] <= x[2] < zoom[1]]
+        print(f"\n  ZOOM stops de {zoom[0]:.2f} a {zoom[1]:.2f} $ ({zoom[0] * 10:.0f} a {zoom[1] * 10:.0f} pips)")
+        if not bande:
+            print("  aucun trade dans cette bande.")
+        else:
+            rs = [x[4] for x in bande]
+            gagn = sum(1 for r in rs if r > 0)
+            print(f"  {len(bande)} trades | gagnants {gagn} ({100 * gagn / len(bande):.0f} %) | R cumul {sum(rs):+.2f} | R moyen {statistics.fmean(rs):+.3f} | "
+                  f"argent {sum(x[3] for x in bande):+,.0f}")
+            if len(rs) >= 5:
+                rnd = random.Random(7)
+                m = sorted(statistics.fmean(rnd.choices(rs, k=len(rs))) for _ in range(2000))
+                bas, haut = m[50], m[1949]
+                print(f"  intervalle a 95 % du R moyen : [{bas:+.3f} ; {haut:+.3f}]  -> "
+                      + ("avantage probable" if bas > 0 else "perdant probable" if haut < 0 else "indistinguable du hasard"))
+            par_jour = {}
+            for x in bande:
+                par_jour.setdefault(x[0], []).append(x[4])
+            print("  par jour : " + "  ".join(f"{d:%d/%m} {len(v)}t {sum(v):+.1f}R" for d, v in sorted(par_jour.items())))
+            pires = sorted(rs)[:3]
+            print(f"  les 3 pires : {', '.join(f'{r:+.2f}' for r in pires)} | les 3 meilleurs : {', '.join(f'{r:+.2f}' for r in sorted(rs)[-3:])}")
     print("\nLecture : si une tranche a un 'risque moy' tres superieur aux autres, ses trades dominent le resultat en argent. Un ecart entre "
           "'argent' et 'si chaque trade avait risque la mediane' montre l'effet du plafond de lot. Peu de trades par tranche = prudence.")
     return 0
