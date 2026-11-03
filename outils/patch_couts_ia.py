@@ -24,6 +24,7 @@ Cle API : variable d'environnement ANTHROPIC_API_KEY, ou fichier  %USERPROFILE%\
 import csv
 import json
 import os
+import re
 import threading
 import time
 import urllib.request
@@ -66,20 +67,21 @@ def _ecrire(ligne):
 
 
 def _extraire(texte):
-    a, b = texte.find("{"), texte.rfind("}")
-    d = json.loads(texte[a:b + 1])
-    avis = "eviter" if str(d.get("avis", "")).lower().startswith("evit") else "ok"
-    try:
-        conf = max(0, min(100, int(float(d.get("confiance", 0)))))
-    except (TypeError, ValueError):
-        conf = 0
-    return avis, conf, str(d.get("raison", ""))[:200].replace(";", ",").replace("\n", " ")
+    m = re.search(r'"avis"\s*:\s*"(\w+)', texte)
+    if not m:
+        raise ValueError("reponse illisible : " + texte[:80].replace("\n", " "))
+    avis = "eviter" if m.group(1).lower().startswith("evit") else "ok"
+    c = re.search(r'"confiance"\s*:\s*"?(\d+)', texte)
+    conf = max(0, min(100, int(c.group(1)))) if c else 0
+    r = re.search(r'"raison"\s*:\s*"([^"]*)', texte)
+    raison = (r.group(1) if r else "")[:200].replace(";", ",").replace("\n", " ")
+    return avis, conf, raison
 
 
 def _appeler(donnees, modele):
     t0 = time.time()
     corps = json.dumps({
-        "model": modele, "max_tokens": 200, "system": CONSIGNE,
+        "model": modele, "max_tokens": 1500, "system": CONSIGNE,
         "messages": [{"role": "user", "content": json.dumps(donnees, ensure_ascii=False)}],
     }).encode("utf-8")
     req = urllib.request.Request(
