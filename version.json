@@ -1,12 +1,12 @@
 {
  "p": {
-  "numero": 17,
-  "version": "7.17",
-  "fichier": "maj-7.17.zip",
-  "quand": "week-end",
-  "sha256": "d71e877a0526b36780b61489bb55bc5805723fd481c954fcda3852a48939c51b",
-  "notes": "Protection du gain du jour (desactivee par defaut)",
-  "date": "2026-11-02 20:06"
+  "numero": 18,
+  "version": "7.18",
+  "fichier": "maj-7.18.zip",
+  "quand": "immediat",
+  "sha256": "887c9b34ca21b5f16954045f82bbc07e7b1750780e7fcb7a7c9e67b1f2fc004d",
+  "notes": "Correction automatique des anciens R gonfles",
+  "date": "2026-11-03 07:02"
  },
- "e": "fab91ed86fdf31752d8192bae7e90b6b9e63deb27cae48bb95baa92d7d93df013f7b253ada87213829bb876bb889849cea5e347f141b73b18569cc69d128a500"
+ "e": "d6bd80f054ae5d73d79f4d988c7c151d5abac0227ee7741b7441db7e5d6d2ba04d8c3f8e6817e20f18c51f36cdf69575bec83f8dc2942a95eb5daed73ff6fc01"
 }
