@@ -10,7 +10,7 @@ Idee d'un trader : tendance de fond haussiere, on n'achete pas le haut, on atten
      objectif 2 R ; sortie au temps 4 h ; une evaluation par bougie M5.
 Memes garde-fous que tendance_m5 : securites du bot, risque trading_tendance_risque_facteur (1.0 = 1 %), 2 trades/jour (a part),
 30 min entre deux trades de l'un ou l'autre moteur, jamais en meme temps qu'une autre position, une place du quota du jour laissee
-au scalp, horaires trading_tendance_heures (9-21), annonce dans la ligue (trading_tendance_ligue), JAMAIS envoye aux amis.
+au scalp, horaires trading_tendance_heures (9-21), annonce dans la ligue (trading_tendance_ligue), envoye aux amis seulement apres patch_tendance_amis.
 Etiquette genre = tendance_pullback (analyses : --genre tendance_pullback). Interrupteur : trading_pullback_actif: false.
 Reglages (tous facultatifs) : trading_pullback_actif (true), _max_jour (2), _mouv_atr (4.0), _ext_atr (1.0), _touche_atr (0.25), _barres (12).
 ATTENTION : logique NON validee sur historique avant mise en service (a la demande de Dav) ; pas de filtre d'annonces economiques.
@@ -141,6 +141,9 @@ B3 = '''    def _pullback_evalue(self):
             if trade is not None:
                 self._pb_jour = (jour, self._pb_jour[1] + 1)
                 self._tend_dernier = t
+                envoyer = getattr(self, "_tendance_signal_amis", None)      # present apres patch_tendance_amis
+                if envoyer:
+                    envoyer(ordre, "tendance_pullback", raison, contexte, trade, t)
         except Exception as exc:
             journal(f"tendance_pullback : {exc!r}")
 
