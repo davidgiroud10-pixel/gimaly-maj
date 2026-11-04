@@ -37,6 +37,13 @@ def main():
         trades.append(t)
         print(f"  {f[2]:%d/%m %H:%M} {t.sens} {t.entree}->SL {t.stop} TP {t.objectifs} | touches={t.touches} stoppe={t.stoppe} eq={t.equilibre} "
               f"fermeAPlat={t.ferme_a_plat} r_annonce={t.r_annonce} | {len(f[1])} rep.")
+        try:
+            print("     =>", {k: v for k, v in t.resultat().items() if k in ("statut", "r", "pips", "pourcentage")})
+        except Exception as exc:
+            print("     => resultat() en erreur :", repr(exc))
+        if "--rep" in sys.argv:
+            for r in f[1]:
+                print("       >", repr(r))
     print(f"{len(trades)} trade(s) lus")
     try:
         st = ss.statistiques(trades)
