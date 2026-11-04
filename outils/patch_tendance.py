@@ -5,13 +5,13 @@ Il ne trade que lorsque le marche est DIRECTIONNEL, dans le sens du mouvement, a
      tendance H1 (EMA 20/50) dans ce sens ;
   2. declencheur : la derniere bougie M5 CLOSE casse le plus bas (vente) / le plus haut (achat) des 6 bougies precedentes (30 min) ;
   3. stop : 1,5 x l'ATR(14) M5, borne entre 2,5 $ et 7 $ ; objectif 2 R ; sortie au temps 4 h ; une evaluation par bougie M5.
-Garde-fous : MEMES securites que le bot (demo, STOP, perte du jour, protection du gain, annonces) ; risque = 50 % du risque normal
+Garde-fous : MEMES securites que le bot (demo, STOP, perte du jour, protection du gain, annonces) ; risque = 100 % du risque normal (1 %), reglable
 (trading_tendance_risque_facteur) ; 2 trades/jour au plus ; 30 min entre deux ; jamais en meme temps qu'une autre position ; laisse
 toujours une place du quota du jour au scalp ; ses trades sont PRIVES : jamais publies a la ligue ni aux amis (signaux), etiquette
 genre = tendance_m5 dans trades_bot.csv (analyses : --genre tendance_m5). Interrupteur : trading_tendance_actif: false.
-Reglages (config.local.yaml, tous facultatifs) : trading_tendance_actif (true), _risque_facteur (0.5), _max_jour (2), _eff_min (0.16),
+Reglages (config.local.yaml, tous facultatifs) : trading_tendance_actif (true), _risque_facteur (1.0 = 1 % comme le scalp ; 0.5 = moitie), _max_jour (2), _eff_min (0.16),
 _tp_r (2.0), _sl_atr (1.5), _cassure_barres (6), _pause_min (30), _heures ([9, 21] = heure du PC : Londres + New York).
-PAS de filtre d'annonces economiques sur ce moteur (le detecteur n'en fournit pas) : c'est un risque connu, d'ou le risque reduit.
+PAS de filtre d'annonces economiques sur ce moteur (le detecteur n'en fournit pas) : c'est un risque connu, .
 ATTENTION : logique NON validee sur historique avant mise en service (a la demande de Dav) ; son resultat se mesure separement.
 
 Usage (dossier gimaly, GIMALY ferme) :  .\.venv\Scripts\python.exe patch_tendance.py   puis redemarrer le bot.
@@ -27,7 +27,7 @@ A1 = '        "ecart_tp_r": float(lire("trading_ecart_tp_r", 1.0)),\n    }\n'
 B1 = '''        "ecart_tp_r": float(lire("trading_ecart_tp_r", 1.0)),
         # 2e moteur « tendance_m5 » (suiveur de tendance, trades prives)
         "tendance_actif": bool(lire("trading_tendance_actif", True)),
-        "tendance_risque_facteur": float(lire("trading_tendance_risque_facteur", 0.5)),
+        "tendance_risque_facteur": float(lire("trading_tendance_risque_facteur", 1.0)),
         "tendance_max_jour": int(lire("trading_tendance_max_jour", 2)),
         "tendance_eff_min": float(lire("trading_tendance_eff_min", 0.16)),
         "tendance_tp_r": float(lire("trading_tendance_tp_r", 2.0)),
