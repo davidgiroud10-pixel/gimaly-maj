@@ -7,7 +7,7 @@ Il ne trade que lorsque le marche est DIRECTIONNEL, dans le sens du mouvement, a
   3. stop : 1,5 x l'ATR(14) M5, borne entre 2,5 $ et 7 $ ; objectif 2 R ; sortie au temps 4 h ; une evaluation par bougie M5.
 Garde-fous : MEMES securites que le bot (demo, STOP, perte du jour, protection du gain, annonces) ; risque = 100 % du risque normal (1 %), reglable
 (trading_tendance_risque_facteur) ; 2 trades/jour au plus ; 30 min entre deux ; jamais en meme temps qu'une autre position ; laisse
-toujours une place du quota du jour au scalp ; ses trades sont PRIVES : jamais publies a la ligue ni aux amis (signaux), etiquette
+toujours une place du quota du jour au scalp ; ses trades sont annonces dans la LIGUE (trading_tendance_ligue: false = prives) mais JAMAIS envoyes aux amis (signaux signes), etiquette
 genre = tendance_m5 dans trades_bot.csv (analyses : --genre tendance_m5). Interrupteur : trading_tendance_actif: false.
 Reglages (config.local.yaml, tous facultatifs) : trading_tendance_actif (true), _risque_facteur (1.0 = 1 % comme le scalp ; 0.5 = moitie), _max_jour (2), _eff_min (0.16),
 _tp_r (2.0), _sl_atr (1.5), _cassure_barres (6), _pause_min (30), _heures ([9, 21] = heure du PC : Londres + New York).
@@ -35,6 +35,7 @@ B1 = '''        "ecart_tp_r": float(lire("trading_ecart_tp_r", 1.0)),
         "tendance_cassure_barres": int(lire("trading_tendance_cassure_barres", 6)),
         "tendance_pause_min": float(lire("trading_tendance_pause_min", 30)),
         "tendance_heures": [int(x) for x in (lire("trading_tendance_heures", None) or [9, 21])][:2],
+        "tendance_ligue": bool(lire("trading_tendance_ligue", True)),   # true = annonce dans la ligue (jamais aux amis)
 '''
 A2 = '''    def volume(self, distance_sl):
 '''
@@ -132,7 +133,7 @@ B7 = '''    def _tendance_evalue(self):
             if abs(prix - derniere[2]) > 0.5 * distance:
                 return                              # le prix a deja trop couru depuis la cassure
             sens = "vente" if baisse else "achat"
-            contexte = {"prive": True, "risque_facteur": r["tendance_risque_facteur"], "tp_r": r["tendance_tp_r"],
+            contexte = {"prive": not r.get("tendance_ligue", True), "risque_facteur": r["tendance_risque_facteur"], "tp_r": r["tendance_tp_r"],
                         "duree_max_min": 240, "prix_xau": prix}
             raison = (f"tendance M5 : cassure {'basse' if baisse else 'haute'} des {n} bougies, efficacite 60 min "
                       f"{eff60:.2f}, mouvement 60 min {n60:+.1f} $, stop {distance:.1f} $")
