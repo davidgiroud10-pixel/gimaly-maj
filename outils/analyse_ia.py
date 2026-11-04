@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 r"""L'avis de l'IA (observateur, ia_avis.csv) aurait-il eu raison ? (lecture seule, rien n'est modifie)
-Rapproche chaque avis du resultat reel du trade (trades_bot.csv : meme jour, meme signal, meme sens, prix d'entree a 5 cents pres, heure a
-moins de 5 minutes) puis resume par avis. Un avis n'est utile que s'il DIFFERENCIE : si l'IA dit « eviter » pour presque tout, elle
+Rapproche chaque avis du resultat reel du trade (trades_bot.csv : meme signal, meme sens, prix d'entree a 50 cents pres, cloture dans les 2 jours
+qui suivent l'avis) puis resume par avis. Un avis n'est utile que s'il DIFFERENCIE : si l'IA dit « eviter » pour presque tout, elle
 n'apprend rien ; il faut que les trades « evites » perdent nettement plus que les autres. Moins de ~100 avis : aucune conclusion.
 Usage (dossier gimaly) :  $env:PYTHONIOENCODING="utf-8"; .\.venv\Scripts\python.exe analyse_ia.py"""
 import csv
@@ -50,9 +50,11 @@ def main():
             if (t.get("resultat") or "").strip() in ("", "ouvert"):
                 continue
             tt = instant(t.get("date", ""), t.get("heure", ""))
-            if ta and tt and abs((tt - ta).total_seconds()) <= 300 and (t.get("genre") or "").strip() == a.get("genre", "").strip() \
+            # l'heure du fichier de trades est celle de la CLOTURE : on exige qu'elle soit apres l'avis (et dans les 2 jours), et un prix
+            # d'entree proche (le glissement peut le decaler de quelques dixiemes)
+            if ta and tt and -300 <= (tt - ta).total_seconds() <= 2 * 86400 and (t.get("genre") or "").strip() == a.get("genre", "").strip() \
                     and (t.get("sens") or "").strip() == a.get("sens", "").strip() and None not in (pe, nombre(t.get("pe"))) \
-                    and abs(nombre(t.get("pe")) - pe) <= 0.05:
+                    and abs(nombre(t.get("pe")) - pe) <= 0.5:
                 res = nombre(t.get("R"))
                 break
         lignes.append((a, res))
