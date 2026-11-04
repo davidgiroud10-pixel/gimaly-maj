@@ -1,12 +1,12 @@
 {
  "p": {
-  "numero": 18,
-  "version": "7.18",
-  "fichier": "maj-7.18.zip",
+  "numero": 19,
+  "version": "7.19",
+  "fichier": "maj-7.19.zip",
   "quand": "immediat",
-  "sha256": "887c9b34ca21b5f16954045f82bbc07e7b1750780e7fcb7a7c9e67b1f2fc004d",
-  "notes": "Correction automatique des anciens R gonfles",
-  "date": "2026-11-03 07:02"
+  "sha256": "3bd878065005b6f1cc54ea9175ebb3c45c00976c34f8d87c922c3b5d037079a7",
+  "notes": "Fermeture partagee : ton bot ferme quand l'editeur ferme a la main",
+  "date": "2026-11-04 11:47"
  },
- "e": "d6bd80f054ae5d73d79f4d988c7c151d5abac0227ee7741b7441db7e5d6d2ba04d8c3f8e6817e20f18c51f36cdf69575bec83f8dc2942a95eb5daed73ff6fc01"
+ "e": "be579fb7c06eff93a7599941fac4dc10d44bc7b8544a10682a9fd4da9ced8dc13d033b12e6533af8e66818d6f428abce0f2754d282ad73ff301de096abf3db03"
 }
