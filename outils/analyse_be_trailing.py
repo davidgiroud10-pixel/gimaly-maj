@@ -99,16 +99,17 @@ def tableau(titre, trades, rates, pt, decalage, duree):
         b = a + duree * 60
         bougies = [r for r in rates if a <= float(r["time"]) <= b]
         if bougies:
-            donnees.append((tr["t"], tr["achat"], tr["pe"], tr["sl"], tr["tp"], bougies))
+            donnees.append((tr["t"], tr["achat"], tr["pe"], tr["sl"], tr["tp"], bougies, tr.get("r_reel")))
     print(f"\n=== {titre} : {len(donnees)} trade(s) rejoues sur {len(trades)} (horizon {duree} min) ===")
     if len(donnees) < 8:
         print("trop peu de trades pour comparer quoi que ce soit.")
         return
+    calibrage(donnees, pt)
     moitie = len(donnees) // 2
     print(f"{'variante':<42}{'n':>4}{'R>=0,25':>9}{'R moyen':>9}{'+/-':>7}{'R total':>9}   {'1re moitie':>10}{'2e moitie':>10}")
     for v in VARIANTES:
         res = []
-        for t, achat, pe, sl, tp, bougies in donnees:
+        for t, achat, pe, sl, tp, bougies, _ref in donnees:
             res.append(rejouer(achat, pe, sl, tp, bougies, pt, v))
         ok = [(i, r) for i, r in enumerate(res) if r is not None]
         n, pct, moy, se, tot = stats([r for _, r in ok])
@@ -117,6 +118,26 @@ def tableau(titre, trades, rates, pt, decalage, duree):
         a1 = sum(m1) / len(m1) if m1 else 0.0
         a2 = sum(m2) / len(m2) if m2 else 0.0
         print(f"{v['nom']:<42}{n:>4}{pct:>8.0f}%{moy:>+9.3f}{se:>7.3f}{tot:>+9.1f}   {a1:>+10.3f}{a2:>+10.3f}")
+
+
+def calibrage(donnees, pt):
+    """Le rejeu 'actuel' reproduit-il ce qui s'est VRAIMENT passe ? Si non, les variantes ne sont pas fiables."""
+    paires = []
+    for t, achat, pe, sl, tp, bougies, ref in donnees:
+        r = rejouer(achat, pe, sl, tp, bougies, pt, VARIANTES[0])
+        if r is not None and ref is not None:
+            paires.append((r, ref))
+    if not paires:
+        print("calibrage : aucun R enregistre a comparer.")
+        return
+    moy_rejeu = sum(a for a, _ in paires) / len(paires)
+    moy_reel = sum(b for _, b in paires) / len(paires)
+    classe = lambda x: "gain" if x >= 0.25 else ("perte" if x < 0 else "neutre")
+    memes = sum(1 for a, b in paires if classe(a) == classe(b))
+    print(f"CALIBRAGE sur {len(paires)} trades : R enregistre moyen {moy_reel:+.3f} | rejeu 'actuel' {moy_rejeu:+.3f} | "
+          f"meme verdict (gain/perte/neutre) pour {100.0 * memes / len(paires):.0f} % des trades")
+    if abs(moy_rejeu - moy_reel) > 0.15 or memes / len(paires) < 0.8:
+        print("  -> le rejeu s'ecarte de la realite : lis les lignes ci-dessous comme des ordres de grandeur, PAS comme des resultats.")
 
 
 def lire_reels(limite, genre):
@@ -130,7 +151,7 @@ def lire_reels(limite, genre):
         if genre and (l.get("genre") or "").strip() != genre:
             continue
         sortie.append({"t": tr["ouverture"], "achat": l["sens"] == "achat", "pe": pe, "sl": sl, "tp": tp,
-                       "genre": l.get("genre")})
+                       "genre": l.get("genre"), "r_reel": nombre(l.get("R"))})
     return sorted(sortie, key=lambda x: x["t"])
 
 
@@ -149,7 +170,8 @@ def lire_fantomes(limite, genre):
                 continue
             if genre and (l.get("genre") or "").strip() != genre:
                 continue
-            sortie.append({"t": t, "achat": l.get("sens") == "achat", "pe": pe, "sl": sl, "tp": tp, "genre": l.get("genre")})
+            sortie.append({"t": t, "achat": l.get("sens") == "achat", "pe": pe, "sl": sl, "tp": tp, "genre": l.get("genre"),
+                           "r_reel": nombre(l.get("R"))})
     return sorted(sortie, key=lambda x: x["t"])
 
 
