@@ -1,12 +1,12 @@
 {
  "p": {
-  "numero": 19,
-  "version": "7.19",
-  "fichier": "maj-7.19.zip",
+  "numero": 20,
+  "version": "7.20",
+  "fichier": "maj-7.20.zip",
   "quand": "immediat",
-  "sha256": "3bd878065005b6f1cc54ea9175ebb3c45c00976c34f8d87c922c3b5d037079a7",
-  "notes": "Fermeture partagee : ton bot ferme quand l'editeur ferme a la main",
-  "date": "2026-11-04 11:47"
+  "sha256": "4b320d14aea2eef9166ec17aac536f4f1977281d1226281a1b3a57d75c303d5b",
+  "notes": "Objectif 3R des trades de tendance respecte, correction de la reprise d'un trade apres redemarrage",
+  "date": "2026-11-04 18:26"
  },
- "e": "be579fb7c06eff93a7599941fac4dc10d44bc7b8544a10682a9fd4da9ced8dc13d033b12e6533af8e66818d6f428abce0f2754d282ad73ff301de096abf3db03"
+ "e": "3a8baf4e56ec3ea4563e988f8fcc8bc9c57bb507232f1863a903f56e85e9b0ea6b20d0011bb08e59aa74634f36b25997aa51b24c3951d5e830d9530950149f06"
 }
