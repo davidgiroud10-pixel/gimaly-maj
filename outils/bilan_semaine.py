@@ -6,7 +6,8 @@ R moyen, argent, et (si au moins 8 trades) un intervalle a 95 % du R moyen (boot
 
 Usage (dossier du programme) :
   .\.venv\Scripts\python.exe bilan_semaine.py                    depuis le 02/11/2026
-  .\.venv\Scripts\python.exe bilan_semaine.py 27/10/2026"""
+  .\.venv\Scripts\python.exe bilan_semaine.py 27/10/2026
+  .\.venv\Scripts\python.exe bilan_semaine.py 20/10/2026 01/11/2026     du 20/10 au 01/11 inclus (2e date = derniere journee)"""
 import csv
 import random
 import statistics
@@ -25,7 +26,7 @@ def nombre(x):
         return None
 
 
-def lire(lignes, depuis):
+def lire(lignes, depuis, jusqua=None):
     res = []
     for l in lignes:
         if (l.get("resultat") or "").strip() in ("", "ouvert"):
@@ -34,7 +35,7 @@ def lire(lignes, depuis):
             jour = datetime.strptime((l.get("date") or "").strip(), "%d/%m/%Y")
         except ValueError:
             continue
-        if jour < depuis:
+        if jour < depuis or (jusqua and jour > jusqua):
             continue
         r, gain = nombre(l.get("R")), nombre(l.get("gain_devise"))
         if r is None:
@@ -82,6 +83,7 @@ def serie_max(trades):
 def main(argv):
     try:
         depuis = datetime.strptime(argv[0], "%d/%m/%Y") if argv else datetime(2026, 11, 2)
+        jusqua = datetime.strptime(argv[1], "%d/%m/%Y") if len(argv) > 1 else None
     except ValueError:
         print("Date attendue : jj/mm/aaaa")
         return 1
@@ -89,12 +91,12 @@ def main(argv):
         print(f"{FICHIER} introuvable.")
         return 1
     with open(FICHIER, newline="", encoding="utf-8-sig") as f:
-        trades = lire(list(csv.DictReader(f, delimiter=";")), depuis)
+        trades = lire(list(csv.DictReader(f, delimiter=";")), depuis, jusqua)
     if not trades:
         print("Aucun trade termine depuis cette date.")
         return 0
     rs = [x["r"] for x in trades]
-    print(f"BILAN DES TRADES REELS depuis le {depuis:%d/%m/%Y} : {len(trades)} trades, R cumule {sum(rs):+.2f}, "
+    print(f"BILAN DES TRADES REELS du {depuis:%d/%m/%Y}" + (f" au {jusqua:%d/%m/%Y}" if jusqua else " a aujourd'hui") + f" : {len(trades)} trades, R cumule {sum(rs):+.2f}, "
           f"argent {sum(x['gain'] for x in trades):+,.0f}, plus longue serie de stops : {serie_max(trades)}")
     groupes("PAR JOUR", trades, lambda x: f"{x['jour']:%d/%m}", ordre=lambda k: k[3:] + k[:2])
     groupes("PAR MOTEUR (signal)", trades, lambda x: x["genre"])
