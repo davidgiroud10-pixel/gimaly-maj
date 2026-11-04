@@ -6,6 +6,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path.cwd()))
+try:
+    sys.stdout.reconfigure(errors="replace")
+except Exception:
+    pass
 
 
 def main():
