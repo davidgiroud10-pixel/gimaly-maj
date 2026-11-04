@@ -90,16 +90,44 @@ def stats(rs):
     return n, 100.0 * sum(1 for x in rs if x >= 0.25) / n, moy, (var / n) ** 0.5, sum(rs)
 
 
+def aligner(ts, pe, decalage, ouvertures):
+    """Heure serveur (epoch) de la minute SUIVANT l'entree. Le decalage UTC -> serveur change avec l'heure d'ete/d'hiver (25/10) : on
+    teste decalage, -1 h et +1 h et on garde celui dont le cours d'ouverture est le plus proche du prix d'entree reel.
+    Renvoie (heure_serveur, correction_en_heures, ecart_en_dollars)."""
+    meilleur = None
+    for h in (0, -1, 1):
+        a = ((ts + decalage + h * 3600) // 60) * 60 + 60
+        o = ouvertures.get(int(a))
+        if o is None:
+            continue
+        e = abs(o - pe)
+        if meilleur is None or e < meilleur[2] - 1.0:           # un autre decalage doit etre nettement meilleur (> 1 $)
+            meilleur = (a, h, e)
+    return meilleur
+
+
 def tableau(titre, trades, rates, pt, decalage, duree):
     """trades : liste triee par date de {t, achat, pe, sl, tp, genre}."""
     donnees = []
+    ouvertures = {int(r["time"]): float(r["open"]) for r in rates}
+    corrections, ecarts_entree = {0: 0, -1: 0, 1: 0, None: 0}, []
     for tr in trades:
-        a = tr["t"].timestamp() + decalage
-        a = (a // 60) * 60 + 60                       # on commence APRES la minute d'entree
+        al = aligner(tr["t"].timestamp(), tr["pe"], decalage, ouvertures)
+        if al is None:
+            corrections[None] += 1
+            continue
+        a, h, e = al
+        corrections[h] += 1
+        ecarts_entree.append(e)
         b = a + duree * 60
         bougies = [r for r in rates if a <= float(r["time"]) <= b]
         if bougies:
             donnees.append((tr["t"], tr["achat"], tr["pe"], tr["sl"], tr["tp"], bougies, tr.get("r_reel")))
+    if ecarts_entree:
+        ecarts_entree.sort()
+        print(f"\nALIGNEMENT HORAIRE : decalage normal pour {corrections[0]} trades, corrige de -1 h pour {corrections[-1]}, de +1 h pour "
+              f"{corrections[1]}, sans bougie correspondante pour {corrections[None]} ; ecart median entre le prix d'entree et la bougie : "
+              f"{ecarts_entree[len(ecarts_entree) // 2]:.2f} $ (90e centile {ecarts_entree[int(len(ecarts_entree) * 0.9)]:.2f} $).")
     print(f"\n=== {titre} : {len(donnees)} trade(s) rejoues sur {len(trades)} (horizon {duree} min) ===")
     if len(donnees) < 8:
         print("trop peu de trades pour comparer quoi que ce soit.")
@@ -122,11 +150,12 @@ def tableau(titre, trades, rates, pt, decalage, duree):
 
 def calibrage(donnees, pt):
     """Le rejeu 'actuel' reproduit-il ce qui s'est VRAIMENT passe ? Si non, les variantes ne sont pas fiables."""
-    paires = []
+    paires, detail = [], []
     for t, achat, pe, sl, tp, bougies, ref in donnees:
         r = rejouer(achat, pe, sl, tp, bougies, pt, VARIANTES[0])
         if r is not None and ref is not None:
             paires.append((r, ref))
+            detail.append((abs(r - ref), t, achat, pe, sl, tp, ref, r))
     if not paires:
         print("calibrage : aucun R enregistre a comparer.")
         return
@@ -138,6 +167,13 @@ def calibrage(donnees, pt):
           f"meme verdict (gain/perte/neutre) pour {100.0 * memes / len(paires):.0f} % des trades")
     if abs(moy_rejeu - moy_reel) > 0.15 or memes / len(paires) < 0.8:
         print("  -> le rejeu s'ecarte de la realite : lis les lignes ci-dessous comme des ordres de grandeur, PAS comme des resultats.")
+        detail.sort(key=lambda x: -x[0])
+        print("  plus gros desaccords (heure | sens | entree | stop | objectif | R enregistre | R rejoue) :")
+        for _, t, achat, pe, sl, tp, ref, r in detail[:8]:
+            print(f"    {t:%d/%m %H:%M} {'achat' if achat else 'vente':<6}{pe:>9.2f}{sl:>9.2f}{tp:>9.2f}   {ref:>+6.2f}   {r:>+6.2f}")
+        gain_rejeu = sum(1 for d in detail if d[7] >= 0.25 and d[6] < 0)
+        perte_rejeu = sum(1 for d in detail if d[7] < 0 and d[6] >= 0.25)
+        print(f"  rejeu gagnant alors que le reel a perdu : {gain_rejeu} trades ; rejeu perdant alors que le reel a gagne : {perte_rejeu}.")
 
 
 def lire_reels(limite, genre):
