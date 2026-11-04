@@ -23,7 +23,7 @@ from pathlib import Path
 F = Path.cwd() / "gimaly" / "trading" / "trading.py"
 MARQUE = "_tendance_evalue"
 
-A1 = '        "ecart_tp_r": float(lire("trading_ecart_tp_r", 1.0)),\n    }\n'
+A1 = '        "ecart_tp_r": float(lire("trading_ecart_tp_r", 1.0)),\n'
 B1 = '''        "ecart_tp_r": float(lire("trading_ecart_tp_r", 1.0)),
         # 2e moteur « tendance_m5 » (suiveur de tendance, trades prives)
         "tendance_actif": bool(lire("trading_tendance_actif", True)),
@@ -35,7 +35,6 @@ B1 = '''        "ecart_tp_r": float(lire("trading_ecart_tp_r", 1.0)),
         "tendance_cassure_barres": int(lire("trading_tendance_cassure_barres", 6)),
         "tendance_pause_min": float(lire("trading_tendance_pause_min", 30)),
         "tendance_heures": [int(x) for x in (lire("trading_tendance_heures", None) or [9, 21])][:2],
-    }
 '''
 A2 = '''    def volume(self, distance_sl):
 '''
@@ -154,9 +153,9 @@ CHANGEMENTS = [(A1, B1), (A2, B2), (A3, B3), (A4, B4), (A5, B5), (A6, B6), (A7, 
 
 def appliquer(txt):
     """Renvoie (nouveau texte, repere manquant)."""
-    for ancien, _ in CHANGEMENTS:
-        if txt.count(ancien) != 1:
-            return None, ancien.strip()[:90]
+    manquants = [a.strip()[:90] for a, _ in CHANGEMENTS if txt.count(a) != 1]
+    if manquants:
+        return None, "\n".join(manquants)
     for ancien, nouveau in CHANGEMENTS:
         txt = txt.replace(ancien, nouveau)
     return txt, None
