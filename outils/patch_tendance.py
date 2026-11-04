@@ -167,7 +167,8 @@ def main():
         return 1
     brut = F.read_bytes()
     bom = brut.startswith(b"\xef\xbb\xbf")
-    txt = brut.decode("utf-8-sig")
+    crlf = brut.count(b"\r\n") > brut.count(b"\n") / 2          # fichier Windows : on rend les memes fins de ligne
+    txt = brut.decode("utf-8-sig").replace("\r\n", "\n")
     if MARQUE in txt:
         print("trading.py : deja corrige (rien a faire).")
         return 0
@@ -182,7 +183,8 @@ def main():
         print(f"Erreur de syntaxe apres modification : {exc}. Rien n'est ecrit.")
         return 3
     shutil.copy2(F, F.with_name(F.name + ".avant_tendance"))
-    F.write_bytes((b"\xef\xbb\xbf" if bom else b"") + nouveau.encode("utf-8"))
+    sortie = nouveau.replace("\n", "\r\n") if crlf else nouveau
+    F.write_bytes((b"\xef\xbb\xbf" if bom else b"") + sortie.encode("utf-8"))
     print("trading.py : corrige (sauvegarde trading.py.avant_tendance). Redemarre le bot.")
     return 0
 

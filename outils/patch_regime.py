@@ -110,11 +110,22 @@ B4 = '''    COLONNES_REGIME = ["date", "heure", "evenement", "genre", "sens", "p
     def _charger_fantomes(self) -> list:
 '''
 
+# boucle() : depuis la simulation POC, un bloc se trouve entre le suivi des fantomes et l'ecriture de l'etat
+A1_POC = '''                    journal(f"simulation POC : {exc!r}")
+                self._ecrire_etat()
+'''
+B1_POC = '''                    journal(f"simulation POC : {exc!r}")
+                self._regime_mesure()
+                self._ecrire_etat()
+'''
 CHANGEMENTS = [(A1, B1), (A2, B2), (A3, B3), (A4, B4)]
 
 
 def appliquer(txt):
     """Renvoie (nouveau texte, repere manquant)."""
+    global CHANGEMENTS
+    if txt.count(A1_POC) == 1:
+        CHANGEMENTS = [(A1_POC, B1_POC)] + [c for c in CHANGEMENTS if c[0] != A1]
     for ancien, _ in CHANGEMENTS:
         if txt.count(ancien) != 1:
             return None, ancien.strip()[:90]
@@ -129,7 +140,8 @@ def main():
         return 1
     brut = F.read_bytes()
     bom = brut.startswith(b"\xef\xbb\xbf")
-    txt = brut.decode("utf-8-sig")
+    crlf = brut.count(b"\r\n") > brut.count(b"\n") / 2          # fichier Windows : on rend les memes fins de ligne
+    txt = brut.decode("utf-8-sig").replace("\r\n", "\n")
     if MARQUE in txt:
         print("trading.py : deja corrige (rien a faire).")
         return 0
@@ -144,7 +156,8 @@ def main():
         print(f"Erreur de syntaxe apres modification : {exc}. Rien n'est ecrit.")
         return 3
     shutil.copy2(F, F.with_name(F.name + ".avant_regime"))
-    F.write_bytes((b"\xef\xbb\xbf" if bom else b"") + nouveau.encode("utf-8"))
+    sortie = nouveau.replace("\n", "\r\n") if crlf else nouveau
+    F.write_bytes((b"\xef\xbb\xbf" if bom else b"") + sortie.encode("utf-8"))
     print("trading.py : corrige (sauvegarde trading.py.avant_regime). Redemarre le bot, puis publier_maj.py.")
     return 0
 
