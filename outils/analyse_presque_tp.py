@@ -47,9 +47,18 @@ def rejouer(barres, sens, pe, stop, tp1, seuil=None):
 def main(argv):
     argv = list(argv)
     genre = "scalp_keltner_large"
+    spread = 0.30
     if "--genre" in argv:
         i = argv.index("--genre")
         genre = argv[i + 1] if i + 1 < len(argv) else genre
+        del argv[i:i + 2]
+    if "--spread" in argv:
+        i = argv.index("--spread")
+        try:
+            spread = float(argv[i + 1].replace(",", "."))
+        except (ValueError, IndexError):
+            print("Spread attendu en dollars, ex. 0,3")
+            return 1
         del argv[i:i + 2]
     try:
         depuis = datetime.strptime(argv[0], "%d/%m/%Y") if argv else datetime(2026, 10, 20)
@@ -119,7 +128,10 @@ def main(argv):
     moitie = len(prep) // 2
     print("\n2) Regle « stop au point d'entree apres X % du chemin » (R sur les memes trades) :")
     r_base = sum(res[1] for _, res in base)
-    print(f"   sans regle : {r_base:+.2f} R sur {len(base)} trades ({r_base / len(base):+.2f} R/trade)")
+    cout = sum(spread / p[3] for p, _ in base)
+    print(f"   sans regle : {r_base:+.2f} R sur {len(base)} trades ({r_base / len(base):+.2f} R/trade) ; apres un spread de {spread:.2f} $ par trade "
+          f"(-{cout:.1f} R) : {r_base - cout:+.2f} R")
+    print("   Le spread se paie avec ou sans regle : il baisse le niveau, pas l'ecart. Les colonnes « R total » sont donc donnees apres spread.")
     print(f"   {'X':>5} {'R total':>9} {'ecart':>8} {'1re moitie':>11} {'2e moitie':>10} {'stops sauves':>13} {'gagnants coupes':>16}")
     ref = {id(p): res for p, res in base}
     idx = {id(p): i for i, p in enumerate(prep)}
@@ -139,7 +151,7 @@ def main(argv):
                 sauves += 1
             if res0[0] == "tp" and res[0] == "be":
                 coupes += 1
-        print(f"   {100 * s:>4.0f}% {r_base + tot:>+9.2f} {tot:>+8.2f} {e1:>+11.2f} {e2:>+10.2f} {int(sauves):>13} {int(coupes):>16}")
+        print(f"   {100 * s:>4.0f}% {r_base - cout + tot:>+9.2f} {tot:>+8.2f} {e1:>+11.2f} {e2:>+10.2f} {int(sauves):>13} {int(coupes):>16}")
     print("\nLecture : « stops sauves » = trades qui auraient fini au stop et finissent a 0 ; « gagnants coupes » = trades qui auraient fini a")
     print("l'objectif et finissent a 0. Une regle n'est credible que si l'ecart est positif dans LES DEUX moities et que les gagnants")
     print("coupes ne mangent pas le gain. Ignore le spread. Cinq seuils testes : un seul bon resultat peut etre du hasard, ne rien changer")
