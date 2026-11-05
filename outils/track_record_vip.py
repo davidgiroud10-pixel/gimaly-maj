@@ -59,6 +59,13 @@ def lire(canal, depuis, avec_manuels):
             continue
         clos.append({"t": t, "jour": t.date(), "sens": (l["sens"] or "?").upper(), "symbole": l["symbole"] or "?",
                      "statut": l["statut"], "r": float(l["r"]), "pct": float(l["pct"] or 0.0), "pips": float(l["pips"] or 0.0)})
+    # % illisibles : un % tres superieur a ce que le R permet (1 % de risque) est une erreur de lecture du message.
+    rap = sorted(t["pct"] / t["r"] for t in clos if abs(t["r"]) > 0.3 and t["pct"] / t["r"] > 0)
+    med = rap[len(rap) // 2] if rap else 0.5
+    for t in clos:
+        t["suspect"] = abs(t["pct"]) > 2.0 and abs(t["pct"]) > 3 * med * abs(t["r"])
+        if t["suspect"]:
+            t["pct_lu"], t["pct"] = t["pct"], 0.0
     manuels = []
     try:
         for m in json.loads((DATA / "trades_manuels.json").read_text(encoding="utf-8")):
@@ -199,6 +206,9 @@ def construire(canal, clos, ignores, manuels, avec_manuels, depuis_lib):
         cum_r += t["r"]
         cum_p += t["pct"]
         cum.append((t["t"], cum_r, cum_p))
+    susp = [t for t in clos if t.get("suspect")]
+    susp_txt = (f"{len(susp)} signal(aux) au % illisible dans le canal (ex. {susp[0]['pct_lu']:+.0f} % pour {susp[0]['r']:+.1f} R) "
+                f"comptes a 0 % dans la mesure en % capital (R {fr(sum(t['r'] for t in susp))} conserve dans la mesure en R) : mesure en % prudente. ") if susp else ""
     manuel_txt = ""
     if manuels:
         tot = sum(float(m.get("r") or 0) for m in manuels)
@@ -252,7 +262,7 @@ td{{padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap}}.n{{
 <p class="note"><b>Source :</b> les signaux publies dans le canal, lus par GIMALY ; le resultat vient des coches de TP et du stop annonces dans les messages. Ce ne sont pas les releves d'un compte.</p>
 <p class="note"><b>R :</b> le gain du TP le plus loin atteint, en multiples du risque (convention des bilans du canal). <b>% du capital :</b> 1 % de risque par signal reparti entre les TP, stop au point mort apres TP1 : plus proche de ce que vit quelqu'un qui suit les signaux.</p>
 <p class="note"><b>Theorique :</b> hors spread, commission et glissement, avec une execution supposee parfaite aux prix publies. Les resultats reels d'un suiveur peuvent etre plus faibles.</p>
-<p class="note"><b>Non comptes :</b> {ignores['non déclenché']} ordres jamais declenches, {ignores['clos sans chiffre']} signaux clos sans chiffre, {ignores['en cours']} en cours. {_h.escape(manuel_txt)}</p>
+<p class="note"><b>Non comptes :</b> {ignores['non déclenché']} ordres jamais declenches, {ignores['clos sans chiffre']} signaux clos sans chiffre, {ignores['en cours']} en cours. {_h.escape(susp_txt + manuel_txt)}</p>
 <p class="note">Les performances passees ne garantissent pas les performances futures. Le trading comporte un risque de perte en capital. Ce document n'est pas un conseil en investissement.</p></section>
 </main></body></html>"""
     return page, g, pire_r, pire_p, mois_stats
@@ -293,6 +303,9 @@ def main(argv):
     SORTIE.write_text(page, encoding="utf-8")
     print(f"{g['n']} signaux clos du {clos[0]['t']:%d/%m/%Y} au {clos[-1]['t']:%d/%m/%Y} | "
           f"R {fr(g['r'])} | % capital {fr(g['pct'])} | reussite {g['reussite']:.0f} % | facteur de profit {nfr(g['pf'])} | RR {nfr(g['rr'])}")
+    ns = sum(1 for t in clos if t.get("suspect"))
+    if ns:
+        print(f"{ns} signaux au % illisible mis a 0 % (R conserve)")
     print(f"pire recul : {fr(-pire_r)} R / {fr(-pire_p)} % | non comptes : {ignores['non déclenché']} non declenches, "
           f"{ignores['clos sans chiffre']} clos sans chiffre, {ignores['en cours']} en cours")
     for lib, m in mois_stats:
