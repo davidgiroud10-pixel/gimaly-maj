@@ -285,12 +285,7 @@ td{{padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap}}.n{{
 <section><h2>Recul depuis le sommet (R)</h2>{svg_temps([(t, v[1]) for t, v in zip([t for t, _, _ in cum], serie_r)], "Recul", couleur_classe="recul", aire=False)}</section>
 <section><h2>R par mois</h2>{svg_mois(mois_stats, "r")}</section>
 {tableau("Mois par mois", mois_stats)}{tableau("Par sens", sens)}{tableau("Par instrument", symb) if len(symb) > 1 else ""}
-<section class="avert"><h2>Comment lire ces chiffres</h2>
-<p class="note"><b>Source :</b> les signaux publies dans le canal, lus par GIMALY ; le resultat vient des coches de TP et du stop annonces dans les messages. Ce ne sont pas les releves d'un compte.</p>
-<p class="note"><b>R :</b> le gain du TP le plus loin atteint, en multiples du risque (convention des bilans du canal). <b>% du capital :</b> 1 % de risque par signal reparti entre les TP, stop au point mort apres TP1 : plus proche de ce que vit quelqu'un qui suit les signaux.</p>
-<p class="note"><b>Theorique :</b> hors spread, commission et glissement, avec une execution supposee parfaite aux prix publies. Les resultats reels d'un suiveur peuvent etre plus faibles.</p>
-<p class="note"><b>Non comptes :</b> {ignores['non déclenché']} ordres jamais declenches, {ignores['clos sans chiffre']} signaux clos sans chiffre, {ignores['en cours']} en cours. {_h.escape(susp_txt + manuel_txt)}</p>
-<p class="note">Les performances passees ne garantissent pas les performances futures. Le trading comporte un risque de perte en capital. Ce document n'est pas un conseil en investissement.</p></section>
+<p class="note" style="text-align:center">Resultats theoriques tires des messages du canal, hors spread et commission. Le trading comporte un risque de perte en capital.</p>
 </main></body></html>"""
     return page, g, pire_r, pire_p, mois_stats
 
