@@ -21,6 +21,14 @@ FICHIER = DOSSIER / "trades_bot.csv"
 SORTIE = DOSSIER / "track_record.html"
 
 # Grandes decisions (date AAAA-MM-JJ, texte). Reprises de nos echanges ; a verifier et a completer.
+# Periodes proposees en haut de la page (nom, date de debut AAAA-MM-JJ ; vide = depuis le debut). A adapter.
+PERIODES = [
+    ("Depuis le debut", ""),
+    ("Depuis le mode strict (30/09)", "2026-09-30"),
+    ("Depuis le 20/10", "2026-10-20"),
+    ("Depuis lundi 02/11", "2026-11-02"),
+]
+
 EVENEMENTS = [
     ("2026-09-30", "Mode strict (configuration definitive)"),
     ("2026-10-01", "Lancement dans la WinLeague"),
@@ -100,6 +108,7 @@ td{padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap}td.n,t
 .evts li{margin:2px 0}.evts{margin:6px 0 0;padding-left:18px;color:var(--mute);font-size:12px}
 </style></head><body><main>
 <header><h1>Track record du bot</h1><p class="sub" id="sous"></p></header>
+<div class="bascule" id="periodes"></div>
 <section class="cartes" id="cartes"></section>
 <section class="bloc"><h2>Courbe de performance</h2>
 <div class="bascule"><button id="b-r" class="on">en R</button><button id="b-e">en argent</button></div>
@@ -121,7 +130,8 @@ td{padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap}td.n,t
 <div class="tip" id="tip"></div>
 </main>
 <script>
-const T = __DONNEES__, EVT = __EVENEMENTS__, MAJ = "__MAJ__";
+const TOUT = __DONNEES__, EVT = __EVENEMENTS__, MAJ = "__MAJ__", PERIODES = __PERIODES__;
+let T = TOUT;
 const $ = (id) => document.getElementById(id);
 const NS = 'http://www.w3.org/2000/svg';
 const fmt = (x, d = 2) => (x >= 0 ? '+' : '') + x.toFixed(d).replace('.', ',');
@@ -131,8 +141,9 @@ const COUL = ['--c1', '--c2', '--c3', '--c4', '--c5'];
 const couleur = (i) => getComputedStyle(document.documentElement).getPropertyValue(COUL[i % 5]).trim() || '#35d6ff';
 const jolie = (iso) => iso.split('-').reverse().join('/');
 
-if (!T.length) { document.body.innerHTML = '<main><h1>Aucun trade termine dans le fichier.</h1></main>'; }
-else {
+function afficher() {
+if (!T.length) { $('sous').textContent = 'Aucun trade termine sur cette periode.'; $('cartes').innerHTML = ''; ['g-courbe','g-dd','g-glis','g-jour','g-moteurs'].forEach((i) => $(i).innerHTML = ''); ['t-mois','t-moteur','t-sens','t-heure','evts','leg-m'].forEach((i) => $(i).innerHTML = ''); return; }
+{
 const mean = (a) => a.reduce((s, x) => s + x, 0) / (a.length || 1);
 const R = T.map((t) => t[4]), E = T.map((t) => t[5]);
 let cumR = 0, cumE = 0, sommet = 0, ddMax = 0, ddCour = [];
@@ -210,6 +221,9 @@ tableau('t-mois', (t) => t[1].slice(0, 7), (a, b) => a < b ? -1 : 1, 'mois'); do
 tableau('t-moteur', (t) => t[2], (a, b) => a < b ? -1 : 1, 'moteur'); tableau('t-sens', (t) => t[3], (a, b) => a < b ? -1 : 1, 'sens');
 tableau('t-heure', (t) => String(new Date(t[0]).getHours()).padStart(2, '0') + 'h', (a, b) => a < b ? -1 : 1, 'heure');
 }
+}
+function periode(i) { const d = PERIODES[i][1]; T = d ? TOUT.filter((t) => t[1] >= d) : TOUT; document.querySelectorAll('#periodes button').forEach((b, k) => b.className = k === i ? 'on' : ''); afficher(); }
+$('periodes').innerHTML = PERIODES.map((p) => '<button>' + p[0] + '</button>').join(''); document.querySelectorAll('#periodes button').forEach((b, i) => b.onclick = () => periode(i)); periode(0);
 </script></body></html>
 '''
 
@@ -231,6 +245,7 @@ def main(argv):
         return 0
     html = (MODELE.replace("__DONNEES__", json.dumps(trades, ensure_ascii=False))
             .replace("__EVENEMENTS__", json.dumps(EVENEMENTS, ensure_ascii=False))
+            .replace("__PERIODES__", json.dumps(PERIODES, ensure_ascii=False))
             .replace("__MAJ__", datetime.now().strftime("%d/%m/%Y %H:%M")))
     SORTIE.write_text(html, encoding="utf-8")
     print(f"{len(trades)} trades -> {SORTIE}")
