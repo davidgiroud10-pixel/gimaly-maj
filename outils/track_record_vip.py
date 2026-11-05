@@ -258,7 +258,7 @@ td{{padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap}}.n{{
 <section><h2>Recul depuis le sommet (R)</h2>{svg_temps([(t, v[1]) for t, v in zip([t for t, _, _ in cum], serie_r)], "Recul", couleur_classe="recul", aire=False)}</section>
 <section><h2>R par mois</h2>{svg_mois(mois_stats, "r")}</section>
 {tableau("Mois par mois", mois_stats)}{tableau("Par sens", sens)}{tableau("Par instrument", symb) if len(symb) > 1 else ""}
-<p class="note" style="text-align:center">Resultats theoriques tires des messages du canal, hors spread et commission. Le trading comporte un risque de perte en capital.</p>
+
 </main></body></html>"""
     return page, g, pire_r, pire_p, mois_stats
 
