@@ -106,7 +106,7 @@ def partie_a(mt5, genre, depuis, spread):
     for reel, sens, pe, sl, tp1, etat, r, _, brut, t_ouv in sorted(donnees, key=lambda d: d[9]):
         t0 = reel + 3600 * h_ok - 60
         barres = [x for x in brut if x[0] >= t0]
-        prep.append((sens, pe, abs(pe - sl), tp1, r, barres, t0))
+        prep.append((sens, pe, abs(pe - sl), tp1, r, barres, t0, t_ouv))
     moitie = len(prep) // 2
     reel_r = sum(p[4] for p in prep)
     print(f"Spread suppose : {spread:.2f} $ par trade, retire de CHAQUE resultat simule (= {spread / statistics.fmean(p[2] for p in prep):.2f} R en moyenne). "
@@ -115,13 +115,33 @@ def partie_a(mt5, genre, depuis, spread):
     for h in DUREES_H:
         d = h * 3600
         base = [fixe(p[5], p[0], p[1], p[2], p[3], d, p[6]) - spread / p[2] for p in prep]
-        print(f"\n  Duree max {h} h - gestion actuelle rejouee (stop + objectif) : {sum(base):+.2f} R ({sum(base) / len(base):+.2f} R/trade)")
-        print(f"    {'suiveur':>9} {'R total':>9} {'R/trade':>8} {'reussite':>9} {'1re moitie':>11} {'2e moitie':>10} {'ecart vs actuelle':>18}")
+        print(f"\n  Duree max {h} h - gestion actuelle rejouee (stop + objectif) : {sum(base):+.2f} R ({sum(base) / len(base):+.2f} R/trade)"
+              f" | 1re moitie {sum(base[:moitie]):+.2f} | 2e moitie {sum(base[moitie:]):+.2f}")
+        print(f"    {'suiveur':>9} {'R total':>9} {'R/trade':>8} {'reussite':>9} {'1re moitie':>11} {'2e moitie':>10} {'ecart 1re':>10} {'ecart 2e':>9}")
         for m in MULTS:
             res = [suiveur(p[5], p[0], p[1], p[2], m, d, p[6]) - spread / p[2] for p in prep]
             g = 100 * sum(1 for x in res if x > 0) / len(res)
             print(f"    {m:>7.1f}x {sum(res):>+9.2f} {sum(res) / len(res):>+8.2f} {g:>8.0f}% {sum(res[:moitie]):>+11.2f} "
-                  f"{sum(res[moitie:]):>+10.2f} {sum(res) - sum(base):>+18.2f}")
+                  f"{sum(res[moitie:]):>+10.2f} {sum(res[:moitie]) - sum(base[:moitie]):>+10.2f} {sum(res[moitie:]) - sum(base[moitie:]):>+9.2f}")
+    d = 24 * 3600
+    base = [fixe(p[5], p[0], p[1], p[2], p[3], d, p[6]) - spread / p[2] for p in prep]
+    r2 = [suiveur(p[5], p[0], p[1], p[2], 2.0, d, p[6]) - spread / p[2] for p in prep]
+    r3 = [suiveur(p[5], p[0], p[1], p[2], 3.0, d, p[6]) - spread / p[2] for p in prep]
+    print("\n  Semaine par semaine (duree max 24 h, apres spread) :")
+    print(f"    {'semaine':>10} {'trades':>7} {'reel':>8} {'actuelle':>9} {'suiveur 2x':>11} {'suiveur 3x':>11}")
+    semaines = {}
+    for p, b, a2, a3 in zip(prep, base, r2, r3):
+        cle = p[7].strftime("%G-S%V")
+        x = semaines.setdefault(cle, [0, 0.0, 0.0, 0.0, 0.0])
+        x[0] += 1
+        x[1] += p[4]
+        x[2] += b
+        x[3] += a2
+        x[4] += a3
+    for cle, x in sorted(semaines.items()):
+        print(f"    {cle:>10} {x[0]:>7} {x[1]:>+8.2f} {x[2]:>+9.2f} {x[3]:>+11.2f} {x[4]:>+11.2f}")
+    mieux = sum(1 for x in semaines.values() if x[3] > x[2])
+    print(f"    Le suiveur 2x bat la gestion actuelle dans {mieux} semaine(s) sur {len(semaines)}.")
     print("\n  Lecture : un suiveur n'est interessant que s'il bat la gestion actuelle dans LES DEUX moities. Ces entrees ont ete choisies pour")
     print("  le scalp : meme si ca ne marche pas ici, ca ne dit rien d'un vrai systeme swing (partie B).")
 
