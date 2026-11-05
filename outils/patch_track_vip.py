@@ -6,8 +6,9 @@ r"""Patch : TRACK RECORD « Le Coin Trader VIP » dans GIMALY (comme PERFORMANCE
     messages enregistres, une seule fois. A la premiere mise en route rien n'est renvoye pour le passe.
   * web.py : page /track-vip (jeton principal), bouton « Envoyer sur Telegram » (a la demande), demarrage du calendrier.
   * v2 : module « TRACK VIP » dans le dock (groupe TRADING, sans raccourci F) + apercu au survol ; hud.py : methode ouvrir_track_vip.
-Facultatif : ~\GIMALY\trading\track_vip_reglages.json  ->  {"depuis": "13/04/2026", "destinataire": "@pseudo_du_trader"}
-(date de lancement ; contact Telegram qui recoit le track record via le bouton « Envoyer au trader »).
+Facultatif : ~\GIMALY\trading\track_vip_reglages.json  ->  {"depuis": "13/04/2026", "destinataire": "@pseudo_du_trader", "auto_trader": "mensuel"}
+(date de lancement ; contact Telegram qui recoit le track record via le bouton « Envoyer au trader » ; auto_trader : « mensuel »
+(le 1er) ou « hebdo » (le lundi) pour qu'il le recoive tout seul).
 Prerequis : patch_performance_gimaly + patch_performance_v2. Rien n'est modifie dans le bot ni dans les donnees.
 
 Usage (dossier gimaly) :  .\.venv\Scripts\python.exe patch_track_vip.py   puis redemarrer GIMALY (fenetre principale).
@@ -463,17 +464,30 @@ def _ecrire_etat(d):
 
 
 def verifier(config):
-    """Le 1er du mois, a partir de 9 h : envoie le track record, une seule fois. Premiere mise en route : rien d'envoye."""
+    """A toi : le 1er du mois (9 h). Au trader (si « destinataire » et « auto_trader » : mensuel ou hebdo sont regles) :
+    le 1er du mois, ou le lundi, a partir de 9 h. Une seule fois par periode ; premiere mise en route : rien d'envoye pour le passe."""
     maintenant = datetime.now()
     mois = maintenant.strftime("%Y-%m")
+    semaine = maintenant.strftime("%G-%V")
     etat = _etat()
     if "dernier" not in etat:
         _ecrire_etat({"dernier": mois})
         return None
-    if etat["dernier"] == mois or maintenant.day != 1 or maintenant.hour < 9:
+    message = None
+    if maintenant.hour < 9:
         return None
-    message = envoyer(config)
-    _ecrire_etat({"dernier": mois})
+    if etat["dernier"] != mois and maintenant.day == 1:
+        message = envoyer(config)
+        etat["dernier"] = mois
+        _ecrire_etat(etat)
+    frequence = _reglage("auto_trader").lower()
+    if _reglage("destinataire") and frequence in ("mensuel", "hebdo"):
+        periode, jour_ok = (mois, maintenant.day == 1) if frequence == "mensuel" else (semaine, maintenant.weekday() == 0)
+        champ = "trader_" + frequence
+        if etat.get(champ) != periode and jour_ok:
+            message = envoyer(config, True)
+            etat[champ] = periode
+            _ecrire_etat(etat)
     return message
 
 
