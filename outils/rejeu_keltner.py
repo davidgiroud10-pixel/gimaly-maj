@@ -126,7 +126,7 @@ def controle(mt5, barres, sigs, depuis):
     r = reels(max(depuis, datetime(2026, 10, 20)))
     if not r or not sigs:
         print("Controle : aucun trade reel a comparer.")
-        return
+        return 0, set()
     tick = mt5.symbol_info_tick(SYMBOLE)
     decalage = (tick.time - time.time()) if tick and tick.time else 0.0
     instants = {s: [barres[i][0] for i, sens, _, _ in sigs if sens == s] for s in ("achat", "vente")}
@@ -139,6 +139,12 @@ def controle(mt5, barres, sigs, depuis):
         if n > meilleur[0]:
             meilleur = (n, h)
     trouves, h_ok = meilleur
+    pris = set()
+    for t, sens in r:
+        cible = t.timestamp() + decalage + 3600 * h_ok
+        for i, s_, _, _ in sigs:
+            if s_ == sens and abs(barres[i][0] - cible) <= 150:
+                pris.add(i)
     print(f"Controle : {trouves} de tes {len(r)} trades reels ({100 * trouves / len(r):.0f} %) correspondent a un signal rejoue "
           f"(meme sens, a 2,5 min pres, decalage horaire {h_ok:+d} h).")
     debut_s = min(t.timestamp() for t, _ in r) + decalage + 3600 * h_ok - 300
@@ -148,6 +154,7 @@ def controle(mt5, barres, sigs, depuis):
     if trouves / len(r) < 0.7:
         print("           ATTENTION : moins de 70 % de tes trades sont retrouves, le rejeu ne reproduit pas bien le signal : "
               "resultats a prendre avec beaucoup de prudence (envoie-moi cette sortie).")
+    return h_ok, pris
 
 
 def stats_groupe(rs):
@@ -192,7 +199,7 @@ def main(argv):
         d0, d1 = datetime.fromtimestamp(barres[0][0]), datetime.fromtimestamp(barres[-1][0])
         print(f"{len(barres)} bougies M1 du {d0:%d/%m/%Y} au {d1:%d/%m/%Y} (limite : ce que ton MetaTrader a charge) | spread suppose {spread:.2f} $")
         sigs = signaux(barres)
-        controle(mt5, barres, sigs, depuis)
+        h_ok, pris = controle(mt5, barres, sigs, depuis)
     finally:
         mt5.shutdown()
     lignes = []
@@ -201,7 +208,7 @@ def main(argv):
         if t < depuis:
             continue
         dist = abs(entree - sl)
-        lignes.append((t, sens, jouer(barres, i, sens, entree, sl) - spread / dist))
+        lignes.append((t, sens, jouer(barres, i, sens, entree, sl) - spread / dist, i))
     if not lignes:
         print("Aucun signal rejoue.")
         return 0
@@ -216,7 +223,7 @@ def main(argv):
     m = len(rs) // 2
     print(f"  deux moities : {sum(rs[:m]):+.1f} R puis {sum(rs[m:]):+.1f} R")
     mois, sem = {}, {}
-    for t, sens, r in lignes:
+    for t, sens, r, _ in lignes:
         mois.setdefault(t.strftime("%Y-%m"), []).append(r)
         sem.setdefault(t.strftime("%G-S%V"), []).append(r)
     print("\nMois par mois :")
@@ -224,6 +231,28 @@ def main(argv):
         print(f"  {k}  {stats_groupe(v)}")
     pos = sum(1 for v in sem.values() if sum(v) > 0)
     print(f"\nSemaines positives : {pos} sur {len(sem)} ({100 * pos / len(sem):.0f} %)")
+    if pris:
+        debut_pris = min(barres[i][0] for i in pris)
+        meme = [x for x in lignes if barres[x[3]][0] >= debut_pris]
+        a = [x[2] for x in meme if x[3] in pris]
+        b = [x[2] for x in meme if x[3] not in pris]
+        print("\nSignaux PRIS par le bot ou non, depuis ses premiers trades (memes regles de rejeu) :")
+        print(f"  pris par le bot     : {stats_groupe(a)}")
+        print(f"  filtres par le bot  : {stats_groupe(b)}")
+        print("  (le bot filtre sessions, limite de positions... Si les signaux pris sont meilleurs que les filtres, ses filtres aident ;")
+        print("   sur quelques semaines, l'ecart peut aussi etre du hasard.)")
+    print("\nPar tranche de 2 heures, heure de ton PC (R/trade apres spread ; 1re moitie / 2e moitie de la periode) :")
+    print(f"  {'heures':>9} {'trades':>7} {'R/trade':>8} {'1re':>7} {'2e':>7}")
+    m2 = lignes[len(lignes) // 2][0]
+    for tr in range(0, 24, 2):
+        v = [x for x in lignes if (((x[0] - timedelta(hours=h_ok)).hour) // 2) * 2 == tr]
+        if len(v) < 30:
+            continue
+        v1 = [x[2] for x in v if x[0] < m2]
+        v2 = [x[2] for x in v if x[0] >= m2]
+        f = lambda z: f"{statistics.fmean(z):>+7.3f}" if z else "      -"
+        print(f"  {tr:>2}h-{tr + 2:>2}h {len(v):>7} {statistics.fmean([x[2] for x in v]):>+8.3f} {f(v1)} {f(v2)}")
+    print("  (une tranche n'est interessante que si les DEUX moities sont positives ; 12 tranches regardees = risque de hasard.)")
     print("\nLecture : un vrai avantage doit se voir sur la plupart des mois (pas seulement un ou deux), avec un intervalle qui exclut 0 apres")
     print("spread. Rejeu = tous les signaux, sans les filtres du bot. Un resultat a refaire sur les mois a venir avant toute decision.")
     return 0
