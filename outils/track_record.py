@@ -106,7 +106,7 @@ td{padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap}td.n,t
 <svg id="g-courbe" viewBox="0 0 1100 340" role="img" aria-label="Courbe cumulee"></svg>
 <ol class="evts" id="evts"></ol></section>
 <div class="deux">
-<section class="bloc"><h2>Drawdown (recul depuis le sommet, en R)</h2><svg id="g-dd" viewBox="0 0 540 220"></svg></section>
+<section class="bloc"><h2>Recul depuis le sommet (R)</h2><svg id="g-dd" viewBox="0 0 540 220"></svg></section>
 <section class="bloc"><h2>R moyen sur les 30 derniers trades</h2><svg id="g-glis" viewBox="0 0 540 220"></svg></section>
 </div>
 <section class="bloc"><h2>Resultat par jour (R)</h2><svg id="g-jour" viewBox="0 0 1100 240"></svg></section>
@@ -138,7 +138,7 @@ const R = T.map((t) => t[4]), E = T.map((t) => t[5]);
 let cumR = 0, cumE = 0, sommet = 0, ddMax = 0, ddCour = [];
 const serieR = [], serieE = [];
 T.forEach((t, i) => { cumR += t[4]; cumE += t[5]; sommet = Math.max(sommet, cumR); ddMax = Math.min(ddMax, cumR - sommet);
-  serieR.push([t[0], cumR]); serieE.push([t[0], cumE]); ddCour.push([t[0], cumR - sommet]); });
+  serieR.push([t[0], cumR]); serieE.push([t[0], cumE]); ddCour.push([t[0], sommet - cumR]); });
 const gagn = T.filter((t) => t[4] > 0.05), perd = T.filter((t) => t[4] < -0.05);
 const gains = gagn.reduce((s, t) => s + t[4], 0), pertes = -perd.reduce((s, t) => s + t[4], 0);
 let serieMax = 0, c = 0; T.forEach((t) => { c = t[4] < -0.5 ? c + 1 : 0; serieMax = Math.max(serieMax, c); });
@@ -193,7 +193,7 @@ const xmin = Math.min(T[0][0], evts.length ? evts[0][0] : T[0][0]);
 function courbe(mode) { $('b-r').className = mode === 'r' ? 'on' : ''; $('b-e').className = mode === 'e' ? 'on' : '';
   tracer($('g-courbe'), 1100, 340, [{nom: mode === 'r' ? 'R cumule' : 'Argent cumule', pts: mode === 'r' ? serieR : serieE}], {aire: true, evts: evts, heure: true, xmin: xmin, fy: mode === 'r' ? (v) => fmt(v, 1) + ' R' : (v) => eur(v)}); }
 $('b-r').onclick = () => courbe('r'); $('b-e').onclick = () => courbe('e'); courbe('r');
-tracer($('g-dd'), 540, 220, [{nom: 'Drawdown', pts: ddCour, couleur: getComputedStyle(document.documentElement).getPropertyValue('--bad').trim()}], {aire: true, fy: (v) => fmt(v, 1) + ' R'});
+tracer($('g-dd'), 540, 220, [{nom: 'Recul', pts: ddCour, couleur: getComputedStyle(document.documentElement).getPropertyValue('--bad').trim()}], {aire: true, fy: (v) => (Math.round(v * 10) / 10).toString().replace('.', ',') + ' R'});
 const glis = []; for (let i = 29; i < T.length; i++) glis.push([T[i][0], mean(R.slice(i - 29, i + 1))]);
 tracer($('g-glis'), 540, 220, [{nom: 'R moyen (30 trades)', pts: glis.length ? glis : [[T[0][0], 0], [T[T.length - 1][0], 0]]}], {fy: (v) => fmt(v, 2)});
 tracer($('g-jour'), 1100, 240, [{nom: 'Jour', pts: jr.map((j) => [new Date(j[0] + 'T12:00:00').getTime(), j[1]])}], {barres: true, fy: (v) => fmt(v, 1) + ' R'});
