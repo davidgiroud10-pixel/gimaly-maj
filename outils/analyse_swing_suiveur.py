@@ -46,9 +46,13 @@ def suiveur(barres, sens, pe, stop, mult, duree_s, t0):
         if achat:
             meilleur = max(meilleur, h)
             courant = max(courant, meilleur - mult * stop)
+            if b <= courant:          # prudent : le plus haut vient avant le plus bas de la meme bougie
+                return (courant - pe) / stop
         else:
             meilleur = min(meilleur, b)
             courant = min(courant, meilleur + mult * stop)
+            if h >= courant:
+                return (pe - courant) / stop
         dern = c
     return ((dern - pe) if achat else (pe - dern)) / stop
 
@@ -69,7 +73,7 @@ def fixe(barres, sens, pe, stop, tp1, duree_s, t0):
     return ((dern - pe) if achat else (pe - dern)) / stop
 
 
-def partie_a(mt5, genre, depuis):
+def partie_a(mt5, genre, depuis, spread):
     if not FICHIER.exists():
         print(f"{FICHIER} introuvable.")
         return
@@ -105,14 +109,16 @@ def partie_a(mt5, genre, depuis):
         prep.append((sens, pe, abs(pe - sl), tp1, r, barres, t0))
     moitie = len(prep) // 2
     reel_r = sum(p[4] for p in prep)
+    print(f"Spread suppose : {spread:.2f} $ par trade, retire de CHAQUE resultat simule (= {spread / statistics.fmean(p[2] for p in prep):.2f} R en moyenne). "
+          "Les trades sont rejoues chacun de leur cote : aucune limite du nombre de positions ouvertes en meme temps.")
     print(f"Resultat REEL : {reel_r:+.2f} R ({reel_r / len(prep):+.2f} R/trade)")
     for h in DUREES_H:
         d = h * 3600
-        base = [fixe(p[5], p[0], p[1], p[2], p[3], d, p[6]) for p in prep]
+        base = [fixe(p[5], p[0], p[1], p[2], p[3], d, p[6]) - spread / p[2] for p in prep]
         print(f"\n  Duree max {h} h - gestion actuelle rejouee (stop + objectif) : {sum(base):+.2f} R ({sum(base) / len(base):+.2f} R/trade)")
         print(f"    {'suiveur':>9} {'R total':>9} {'R/trade':>8} {'reussite':>9} {'1re moitie':>11} {'2e moitie':>10} {'ecart vs actuelle':>18}")
         for m in MULTS:
-            res = [suiveur(p[5], p[0], p[1], p[2], m, d, p[6]) for p in prep]
+            res = [suiveur(p[5], p[0], p[1], p[2], m, d, p[6]) - spread / p[2] for p in prep]
             g = 100 * sum(1 for x in res if x > 0) / len(res)
             print(f"    {m:>7.1f}x {sum(res):>+9.2f} {sum(res) / len(res):>+8.2f} {g:>8.0f}% {sum(res[:moitie]):>+11.2f} "
                   f"{sum(res[moitie:]):>+10.2f} {sum(res) - sum(base):>+18.2f}")
@@ -234,7 +240,7 @@ def main(argv):
     try:
         mt5.symbol_select(SYMBOLE, True)
         if "A" in partie:
-            partie_a(mt5, genre, depuis)
+            partie_a(mt5, genre, depuis, spread)
         if "B" in partie:
             partie_b(mt5, spread)
     finally:
