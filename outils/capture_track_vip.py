@@ -54,10 +54,10 @@ def navigateur(force):
     return cand[0] if cand else None
 
 
-def lancer(exe, args, timeout=90, mode="--headless=new"):
+def lancer(exe, args, timeout=90, mode="--headless=new", cwd=None):
     base = [exe, mode, "--disable-gpu", "--no-sandbox", "--hide-scrollbars", "--no-first-run", "--no-default-browser-check",
             f"--user-data-dir={tempfile.mkdtemp(prefix='cap_')}"]
-    return subprocess.run(base + args, capture_output=True, text=True, timeout=timeout, encoding="utf-8", errors="replace")
+    return subprocess.run(base + args, capture_output=True, text=True, timeout=timeout, encoding="utf-8", errors="replace", cwd=cwd)
 
 
 def hauteur(exe, page_html):
@@ -101,21 +101,35 @@ def main(argv):
         print(f"(mesure de la hauteur impossible : {e!r} ; hauteur par defaut)")
     h = h or 3600
     erreurs = []
-    for mode in ("--headless=new", "--headless"):
-        if png.exists():
-            png.unlink()
+    dossier = html_out.parent
+    taille = f"--window-size={LARGEUR},{h + 40}"
+    essais = [                                   # (nom, mode, options, chemin de sortie, dossier de travail)
+        ("A", "--headless=new", [taille, "--force-device-scale-factor=2"], str(png), None),
+        ("B", "--headless=new", [taille, "--force-device-scale-factor=2", "--virtual-time-budget=4000"], str(png), None),
+        ("C", "--headless", [taille], str(png), None),
+        ("D", "--headless=new", [taille], png.name, str(dossier)),
+        ("E", "--headless", [taille, "--virtual-time-budget=4000"], png.name, str(dossier)),
+    ]
+    egares = [Path.cwd() / "screenshot.png", dossier / "screenshot.png"]
+    for nom, mode, opts, sortie, cwd in essais:
+        for f in [png] + egares:
+            if f.exists():
+                f.unlink()
+        debut = time.time()
         try:
-            r = lancer(exe, [f"--window-size={LARGEUR},{h + 40}", "--force-device-scale-factor=2", "--virtual-time-budget=4000",
-                             f"--screenshot={png}", html_out.as_uri()], mode=mode)
-            erreurs.append(f"{mode} : code {r.returncode} {((r.stderr or '') + (r.stdout or '')).strip()[-300:]}")
+            r = lancer(exe, opts + [f"--screenshot={sortie}", html_out.as_uri()], mode=mode, cwd=cwd, timeout=60)
+            erreurs.append(f"essai {nom} ({mode}) : code {r.returncode} en {time.time() - debut:.0f} s {((r.stderr or '') + (r.stdout or '')).strip()[-250:]}")
         except Exception as e:  # noqa: BLE001
-            erreurs.append(f"{mode} : {e!r}")
+            erreurs.append(f"essai {nom} ({mode}) : {e!r}")
         for _ in range(10):                      # le fichier peut apparaitre juste apres la fin du processus
-            if png.exists() and png.stat().st_size > 5000:
+            if any(f.exists() and f.stat().st_size > 5000 for f in [png] + egares):
                 break
             time.sleep(0.5)
+        for f in egares:                         # certaines versions ecrivent screenshot.png dans le dossier courant
+            if f.exists() and f.stat().st_size > 5000:
+                shutil.move(str(f), str(png))
         if png.exists() and png.stat().st_size > 5000:
-            print(f"Capture : {png}  ({LARGEUR} x {h + 40} px, double resolution)")
+            print(f"Capture : {png}  ({LARGEUR} x {h + 40} px) [essai {nom}]")
             return 0
     print("La capture n'a pas ete creee. Navigateur utilise : " + exe)
     for e in erreurs:
