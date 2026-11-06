@@ -158,6 +158,16 @@ def main():
             par_jour.setdefault(donnees[i]["t"].date(), []).append(r[i] - base[i])
         m, lo, hi = ic_jours(par_jour)
         print(f"{nom:<52}{moy:>+9.3f}{m:>+11.3f}   [{lo:+.3f} ; {hi:+.3f}]")
+    arret = lambda x: x is not None and x <= -0.95
+    print(f"\nPARITE AVEC TOI : sur {len(donnees)} trades, combien finissent differemment de chez toi ?")
+    print(f"{'scenario':<52}{'ami stoppe, toi pas':>21}{'toi stoppe, ami pas':>21}   dont ventes (1re colonne)")
+    for nom, r in res.items():
+        if nom.startswith("A"):
+            continue
+        ok = [i for i in range(len(donnees)) if r[i] is not None and base[i] is not None]
+        pire = [i for i in ok if arret(r[i]) and not arret(base[i])]
+        mieux = [i for i in ok if arret(base[i]) and not arret(r[i])]
+        print(f"{nom:<52}{len(pire):>21}{len(mieux):>21}   {sum(1 for i in pire if not donnees[i]['achat'])}")
     print("\nLecture : B montre ce que perdent aujourd'hui les courtiers au spread plus large ; C et D ce que le correctif leur rend ; E ce qu'il te ferait a toi.")
     print("Le correctif n'a de sens que si C (ou D) est nettement meilleur que B et se rapproche de A. Les achats ne sont pas touches par le spread.")
 
