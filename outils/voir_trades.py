@@ -14,8 +14,10 @@ Necessite MetaTrader 5 ouvert avec l'historique M1 des derniers jours, et analys
 Usage (dossier gimaly) :
   .\.venv\Scripts\python.exe voir_trades.py "05/11/2026 18:00" "06/11/2026 03:00"     fenetre debut / fin (fin facultative : maintenant)
   .\.venv\Scripts\python.exe voir_trades.py "05/11/2026 18:00" --decalage 1             decalage heure du serveur MetaTrader - PC (1 h chez toi)"""
+import bisect
 import csv
 import sys
+from calendar import timegm
 from datetime import datetime, timedelta
 
 try:
@@ -47,6 +49,29 @@ def lire_trades(debut, fin):
     return out
 
 
+def epoch_serveur(t_pc, dec):
+    """Heure du PC -> « epoch » des bougies MetaTrader (heure du serveur lue comme du temps universel : timegm, PAS timestamp())."""
+    return timegm((t_pc + timedelta(hours=dec)).timetuple())
+
+
+def calibrer(barres, trades, t_list, force):
+    """Decalage serveur - PC retenu : celui pour lequel le prix des bougies colle le mieux au prix d'entree reel des trades."""
+    if force is not None:
+        return force, None
+    meilleur = None
+    for dec in (-1, 0, 1, 2, 3):
+        ecarts = []
+        for t, genre, sens, pe, sl, tp in trades:
+            i = bisect.bisect_right(t_list, epoch_serveur(t, dec)) - 1
+            if i >= 0:
+                ecarts.append(abs(barres[i][4] - pe))
+        if ecarts:
+            m = sum(ecarts) / len(ecarts)
+            if meilleur is None or m < meilleur[1]:
+                meilleur = (dec, m)
+    return meilleur[0], meilleur[1]
+
+
 def simuler(barres, i, sens, pe, sl, tp, minutes=360):
     achat = sens == "achat"
     t0 = barres[i][0]
@@ -70,10 +95,10 @@ def simuler(barres, i, sens, pe, sl, tp, minutes=360):
 
 def main(argv):
     argv = list(argv)
-    dec = 1.0
+    dec_force = None
     if "--decalage" in argv:
         i = argv.index("--decalage")
-        dec = float(argv[i + 1].replace(",", "."))
+        dec_force = float(argv[i + 1].replace(",", "."))
         del argv[i:i + 2]
     if not argv:
         print(__doc__)
@@ -108,15 +133,20 @@ def main(argv):
     m5 = unites["M5"]
     atr5 = pj.ema_atr(m5[0], n_ema=20)[1]
     t_srv_list = [x[0] for x in barres]
-    import bisect
-    print(f"{len(trades)} trade(s) du {debut:%d/%m/%Y %H:%M} au {fin:%d/%m/%Y %H:%M} (heure du PC) | decalage serveur - PC : {dec:g} h")
+    dec, ecart_prix = calibrer(barres, trades, t_srv_list, dec_force)
+    print(f"{len(trades)} trade(s) du {debut:%d/%m/%Y %H:%M} au {fin:%d/%m/%Y %H:%M} (heure du PC) | decalage serveur - PC : {dec:g} h"
+          + (f" (choisi car les prix des bougies collent aux prix d'entree reels : ecart moyen {ecart_prix:.2f} $)" if ecart_prix is not None else " (impose)"))
+    if ecart_prix is not None and ecart_prix > 3:
+        print("  ATTENTION : meme avec le meilleur decalage, les prix des bougies s'ecartent de plus de 3 $ des prix d'entree : resultats non fiables.")
     for t, genre, sens, pe, sl, tp in trades:
-        t_srv = int((t + timedelta(hours=dec)).timestamp())
+        t_srv = epoch_serveur(t, dec)
         i = bisect.bisect_right(t_srv_list, t_srv) - 1
         if i < 100 or t_srv - barres[i][0] > 180:
             print(f"\n{t:%d/%m %H:%M:%S} {genre} {sens} : pas de bougie M1 correspondante (decalage ou historique ?)")
             continue
         dist = abs(pe - sl)
+        if abs(barres[i][4] - pe) > 3:
+            print(f"  (info) prix de la bougie M1 a l'entree : {barres[i][4]:.2f} contre {pe:.2f} dans le journal")
         print(f"\n=== {t:%d/%m/%Y %H:%M:%S}  {genre}  {sens.upper()}  entree {pe:.2f}  stop {sl:.2f} ({dist:.2f} $)  objectif {tp:.2f} ===")
         etats = []
         for nom, _ in atc.UNITES:
