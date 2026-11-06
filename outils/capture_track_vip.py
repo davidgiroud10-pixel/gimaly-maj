@@ -20,6 +20,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -53,8 +54,9 @@ def navigateur(force):
     return cand[0] if cand else None
 
 
-def lancer(exe, args, timeout=90):
-    base = [exe, "--headless=new", "--disable-gpu", "--no-sandbox", "--hide-scrollbars", f"--user-data-dir={tempfile.mkdtemp(prefix='cap_')}"]
+def lancer(exe, args, timeout=90, mode="--headless=new"):
+    base = [exe, mode, "--disable-gpu", "--no-sandbox", "--hide-scrollbars", "--no-first-run", "--no-default-browser-check",
+            f"--user-data-dir={tempfile.mkdtemp(prefix='cap_')}"]
     return subprocess.run(base + args, capture_output=True, text=True, timeout=timeout, encoding="utf-8", errors="replace")
 
 
@@ -91,20 +93,34 @@ def main(argv):
     print(f"\nPage membres (lecture seule) : {html_out}")
     if not exe:
         return 0
+    png = html_out.with_suffix(".png")
+    h = None
     try:
-        h = hauteur(exe, page) or 3200
-        png = html_out.with_suffix(".png")
+        h = hauteur(exe, page)
+    except Exception as e:  # noqa: BLE001
+        print(f"(mesure de la hauteur impossible : {e!r} ; hauteur par defaut)")
+    h = h or 3600
+    erreurs = []
+    for mode in ("--headless=new", "--headless"):
         if png.exists():
             png.unlink()
-        lancer(exe, [f"--window-size={LARGEUR},{h + 40}", "--force-device-scale-factor=2", "--virtual-time-budget=4000",
-                     f"--screenshot={png}", html_out.as_uri()])
-    except Exception as e:  # noqa: BLE001
-        print(f"Capture impossible ({e!r}). La page HTML est prete : ouvre-la dans le navigateur et fais une capture.")
-        return 0
-    if png.exists() and png.stat().st_size > 5000:
-        print(f"Capture : {png}  ({LARGEUR} x {h + 40} px, double resolution)")
-    else:
-        print("La capture n'a pas ete creee : ouvre track_record_membres.html dans le navigateur et fais une capture.")
+        try:
+            r = lancer(exe, [f"--window-size={LARGEUR},{h + 40}", "--force-device-scale-factor=2", "--virtual-time-budget=4000",
+                             f"--screenshot={png}", html_out.as_uri()], mode=mode)
+            erreurs.append(f"{mode} : code {r.returncode} {((r.stderr or '') + (r.stdout or '')).strip()[-300:]}")
+        except Exception as e:  # noqa: BLE001
+            erreurs.append(f"{mode} : {e!r}")
+        for _ in range(10):                      # le fichier peut apparaitre juste apres la fin du processus
+            if png.exists() and png.stat().st_size > 5000:
+                break
+            time.sleep(0.5)
+        if png.exists() and png.stat().st_size > 5000:
+            print(f"Capture : {png}  ({LARGEUR} x {h + 40} px, double resolution)")
+            return 0
+    print("La capture n'a pas ete creee. Navigateur utilise : " + exe)
+    for e in erreurs:
+        print("  " + e)
+    print("En attendant : ouvre track_record_membres.html dans le navigateur et fais une capture (ou Imprimer > Enregistrer en PDF).")
     return 0
 
 
