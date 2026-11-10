@@ -6,7 +6,7 @@ Lit trades_bot.csv (trades termines, heure de ton PC) et montre :
   2. la periode recente (3 derniers jours par defaut) comparee a la periode de reference (depuis le 20/10, hors periode recente) :
      part de stops, R par trade, et la probabilite d'avoir AU MOINS autant de stops par hasard si le bot n'avait pas change (loi binomiale) ;
   3. les trades de la periode recente un par un (heure, sens, distance du stop, resultat, R, duree) et la plus longue serie de stops ;
-  4. un rappel : avec un objectif a 1,5 R, ~40 % de reussite suffisent a l'equilibre, donc 50-55 % de stops est le fonctionnement normal.
+  4. un rappel : les gains reels valent ~+1,1 a +1,3 R (objectif 1,5 R, spread et sorties anticipees), donc l'equilibre est vers ~55 % de stops : 50 a 60 % est normal, au-dela de 60 % sur la duree c'est un probleme.
 Ne dit PAS si le bot est bon ou mauvais : sur quelques jours, une mauvaise passe est compatible avec le hasard.
 Usage (dossier gimaly, a cote de diag_tp.py) :
   .\.venv\Scripts\python.exe bilan_bot.py                          3 derniers jours vs reference depuis le 20/10
@@ -127,7 +127,7 @@ def main():
         pire = max(pire, serie)
     print(f"   Plus longue serie de stops de suite sur la periode : {pire}")
     print("\n4. A GARDER EN TETE")
-    print("   Objectif a 1,5 R : le bot est a l'equilibre avec ~40 % de trades gagnants, donc 50 a 60 % de stops est NORMAL. Le probleme n'est pas le nombre de stops")
+    print("   Gains reels ~+1,1 a +1,3 R : l'equilibre est vers ~55 % de stops, donc 50 a 60 % est NORMAL (au-dela de 60 % sur la duree, a surveiller). Le probleme n'est pas un jour de stops")
     print("   mais le R par trade sur la duree. Quelques jours ne suffisent pas pour juger ; c'est le suivi sur des centaines de trades qui compte.")
 
 
