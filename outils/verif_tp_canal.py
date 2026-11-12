@@ -117,6 +117,7 @@ def main(argv):
     for n in sorted(par_n):
         print(f"  {n} TP : {len(par_n[n])} signaux, % / R median {statistics.median(par_n[n]):.2f} (1/n = {1 / n:.2f})")
     ok = []
+    non_retrouves = []
     absurdes = [x for x, rs, r, lu in prep if abs(lu) >= 50]
     tot_calc = tot_lu = 0.0
     for x, rs, r, lu in prep:
@@ -137,6 +138,7 @@ def main(argv):
         else:
             calc = sum(rs[:k]) / n
         if calc != calc:                       # gagnant dont le TP n'est pas retrouve : non comparable
+            non_retrouves.append((x, rs, r, lu))
             continue
         tot_calc += calc
         tot_lu += lu
@@ -150,6 +152,10 @@ def main(argv):
     print("\nLes 12 plus gros ecarts (a verifier sur Telegram) :")
     for a, x, calc, lu, k, n in sorted(ok, key=lambda z: -z[0])[:12]:
         print(f"  id {x['message_id']:>7} {x['date'][:16]} {x['sens']:<5} {x['statut']!s:<7} {n} TP, {k} atteint(s) : recalcule {calc:+.2f} R | lu {lu:+.2f} R")
+    if non_retrouves:
+        print(f"\n{len(non_retrouves)} gagnants dont le TP atteint n'a pas pu etre retrouve a partir du R ecrit (R total lu de ces signaux : {sum(z[3] for z in non_retrouves):+.1f} R) :")
+        for x, rs, r, lu in sorted(non_retrouves, key=lambda z: -abs(z[3]))[:25]:
+            print(f"  id {x['message_id']:>7} {x['date'][:16]} {x['sens']:<5} {len(rs)} TP (R des niveaux : {', '.join(f'{v:.2f}' for v in rs)}) | R ecrit {r:+.2f} | % lu {lu:+.2f}")
     print("\nLecture : un recalcul proche du % lu confirme que le bilan tient compte des TP multiples. Un recalcul nettement plus haut ou plus bas indique une autre regle de partage")
     print("(parts inegales, stop jamais remonte...) : dis-moi laquelle et je recalcule avec.")
     return 0
