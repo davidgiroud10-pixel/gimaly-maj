@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 r"""Verification (LECTURE SEULE) du R reel du canal : tient-il compte du NOMBRE de TP de chaque signal (4 ou 5, pas 2) ?
 Lit ~\GIMALY\trades.db. Pour chaque signal clos :
-  - compte ses objectifs (colonne objectifs) et le dernier TP atteint (colonne statut : TP1, TP2...) ;
+  - compte ses objectifs (colonne objectifs) ; le TP atteint est DEDUIT du R ecrit (le statut ne dit que gagne / perdu / nul) ;
   - RECALCULE le R encaisse avec la regle du canal : la position est repartie a parts egales entre les n TP, chaque TP atteint encaisse sa part a son R, le stop du reste passe au
     point mort apres TP1 (reste = 0), un stop avant TP1 = -1 R ;
   - le compare au % ecrit dans le message (1 % de risque = 1 R), que bilan_canal.py utilise comme « R reel ».
@@ -70,44 +70,86 @@ def main(argv):
     nb = Counter(len(niveaux(x["objectifs"])) for x in clos)
     print("\nNombre de TP par signal :", ", ".join(f"{k} TP : {v}" for k, v in sorted(nb.items())))
     print("Statuts :", ", ".join(f"{k} : {v}" for k, v in Counter(str(x['statut']) for x in clos).most_common()))
-    ok, ecarts = [], []
-    tot_calc = tot_lu = 0.0
-    sans = 0
+    # Le statut ne donne pas le TP atteint (gagne / perdu / nul) : on le DEDUIT du R ecrit (r), en testant trois lectures de ce R :
+    #   A : r = R du dernier TP atteint ; B : r = somme des R des TP atteints ; C : r = somme des R des TP atteints divisee par n.
+    prep = []
     for x in clos:
-        n_tp = niveaux(x["objectifs"])
+        tps = niveaux(x["objectifs"])
         try:
             entree, stop = float(x["entree"]), float(x["stop"])
+            lu = float(x["pct"]) if x["pct"] is not None else None
+            r = float(x["r"])
         except (TypeError, ValueError):
-            sans += 1
             continue
         risque = abs(entree - stop)
-        if not n_tp or risque <= 0:
-            sans += 1
+        if not tps or risque <= 0 or lu is None:
             continue
-        rs = [abs(tp - entree) / risque for tp in n_tp]
-        m = re.search(r"tp\s*(\d)", str(x["statut"]), re.I)
-        k = int(m.group(1)) if m else 0
-        k = min(k, len(rs))
-        calc = sum(rs[:k]) / len(rs) if k else (-1.0 if (x["r"] or 0) < -0.05 else 0.0)
-        lu = float(x["pct"]) if x["pct"] is not None else None
-        if lu is None:
-            sans += 1
+        rs = [abs(t - entree) / risque for t in tps]
+        prep.append((x, rs, r, lu))
+    if not prep:
+        print("Aucun signal exploitable (colonnes entree/stop/objectifs/r/pct manquantes ?).")
+        return 0
+
+    def trouve(rs, r, lecture):
+        n = len(rs)
+        best = None
+        for k in range(1, n + 1):
+            v = {"A": rs[k - 1], "B": sum(rs[:k]), "C": sum(rs[:k]) / n}[lecture]
+            d = abs(v - r)
+            if best is None or d < best[0]:
+                best = (d, k)
+        return best
+
+    gagn = [z for z in prep if z[2] > 0.05]
+    print(f"\nQuelle lecture du R ecrit colle aux niveaux de TP ? ({len(gagn)} signaux gagnants, tolerance 0,05 R)")
+    scores = {}
+    for lecture, texte in (("A", "r = R du dernier TP atteint"), ("B", "r = somme des R des TP atteints"), ("C", "r = somme des R des TP atteints / nombre de TP")):
+        n_ok = sum(1 for _, rs, r, _ in gagn if trouve(rs, r, lecture)[0] <= 0.05)
+        scores[lecture] = n_ok
+        print(f"  {lecture} ({texte}) : {n_ok} / {len(gagn)} ({100 * n_ok / max(len(gagn), 1):.0f} %)")
+    meilleure = max(scores, key=scores.get)
+    print(f"Lecture retenue : {meilleure}")
+    print("\nRapport % lu / R ecrit, par nombre de TP (si le 1 % de risque est partage entre n TP, on s'attend a 1/n x 100 pour une lecture B) :")
+    par_n = {}
+    for x, rs, r, lu in gagn:
+        if abs(lu) < 50:                      # les % absurdes (>= 50 %) sont des erreurs de lecture, ecartees ici
+            par_n.setdefault(len(rs), []).append(lu / r)
+    for n in sorted(par_n):
+        print(f"  {n} TP : {len(par_n[n])} signaux, % / R median {statistics.median(par_n[n]):.2f} (1/n = {1 / n:.2f})")
+    ok = []
+    absurdes = [x for x, rs, r, lu in prep if abs(lu) >= 50]
+    tot_calc = tot_lu = 0.0
+    for x, rs, r, lu in prep:
+        if abs(lu) >= 50:
+            continue
+        n = len(rs)
+        if r > 0.05:
+            d, k = trouve(rs, r, meilleure)
+            k = k if d <= 0.05 else 0
+        elif r < -0.05:
+            k = 0
+        else:
+            k = None
+        if k is None:
+            calc = 0.0
+        elif k == 0:
+            calc = -1.0 if r < -0.05 else float("nan")
+        else:
+            calc = sum(rs[:k]) / n
+        if calc != calc:                       # gagnant dont le TP n'est pas retrouve : non comparable
             continue
         tot_calc += calc
         tot_lu += lu
-        ok.append((abs(calc - lu), x, calc, lu, k, len(rs)))
-    if not ok:
-        print("Aucun signal exploitable (colonnes entree/stop/objectifs/pct manquantes ?).")
-        return 0
-    print(f"\n{len(ok)} signaux comparables ({sans} ignores : colonnes manquantes).")
-    print(f"R total RECALCULE (parts egales entre les TP, point mort apres TP1) : {tot_calc:+.1f} R")
-    print(f"R total LU dans les % des messages                                 : {tot_lu:+.1f} R")
+        ok.append((abs(calc - lu), x, calc, lu, k if k is not None else 0, n))
+    print(f"\n{len(ok)} signaux comparables ; {len(absurdes)} ecartes car % lu absurde (>= 50 %) : " + ", ".join(f"id {x['message_id']} ({lu:+.0f} %)" for x, _, _, lu in [(a, None, None, float(a['pct'])) for a in absurdes][:8]))
+    print(f"R total RECALCULE (parts egales entre les n TP, point mort apres TP1) : {tot_calc:+.1f} R")
+    print(f"R total LU dans les % des messages (memes signaux)                    : {tot_lu:+.1f} R")
     ecart = [a for a, *_ in ok]
     proches = sum(1 for a in ecart if a <= 0.15)
-    print(f"Signaux dont le recalcul est a moins de 0,15 R du % lu : {proches} / {len(ok)} ({100 * proches / len(ok):.0f} %) ; ecart median {statistics.median(ecart):.2f} R")
+    print(f"Signaux dont le recalcul est a moins de 0,15 R du % lu : {proches} / {len(ok)} ({100 * proches / max(len(ok), 1):.0f} %) ; ecart median {statistics.median(ecart):.2f} R")
     print("\nLes 12 plus gros ecarts (a verifier sur Telegram) :")
     for a, x, calc, lu, k, n in sorted(ok, key=lambda z: -z[0])[:12]:
-        print(f"  id {x['message_id']:>7} {x['date'][:16]} {x['sens']:<5} {x['statut']!s:<8} {n} TP, {k} atteint(s) : recalcule {calc:+.2f} R | lu {lu:+.2f} R")
+        print(f"  id {x['message_id']:>7} {x['date'][:16]} {x['sens']:<5} {x['statut']!s:<7} {n} TP, {k} atteint(s) : recalcule {calc:+.2f} R | lu {lu:+.2f} R")
     print("\nLecture : un recalcul proche du % lu confirme que le bilan tient compte des TP multiples. Un recalcul nettement plus haut ou plus bas indique une autre regle de partage")
     print("(parts inegales, stop jamais remonte...) : dis-moi laquelle et je recalcule avec.")
     return 0
