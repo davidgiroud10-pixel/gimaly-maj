@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 r"""Bilan en R du canal « Le Coin Trader » (LECTURE SEULE, rien n'est modifie, aucun acces a Telegram).
+Deux mesures : le R du TP le plus loin atteint (comme les bilans du canal) ET le R REEL encaisse deduit du % du capital (partiels, point mort apres TP1).
 Lit la base locale de GIMALY (~\GIMALY\trades.db, comme track_record_vip.py) : les signaux du canal tels que GIMALY les a lus, avec leur R final.
 Affiche : nombre de signaux clos, gagnants / perdants / nuls, R total, R moyen par signal (avec intervalle 95 % regroupe par jour), gain moyen, perte moyenne,
 RR REEL (gain moyen / perte moyenne), facteur de profit, plus longue serie de pertes, pire creux, resultat par mois, par sens, et sur les 30 / 90 derniers jours.
@@ -22,31 +23,31 @@ except ImportError:
     raise SystemExit(1)
 
 
-def ic_jours(trades, z=1.96):
+def ic_jours(trades, z=1.96, cle="r"):
     par = {}
     for t in trades:
-        par.setdefault(t["jour"], []).append(t["r"])
+        par.setdefault(t["jour"], []).append(t[cle])
     n = len(trades)
-    m = sum(t["r"] for t in trades) / n
+    m = sum(t[cle] for t in trades) / n
     se = math.sqrt(sum((sum(v) - m * len(v)) ** 2 for v in par.values())) / n
     return m, m - z * se, m + z * se
 
 
-def serie_pertes(trades):
+def serie_pertes(trades, cle="r"):
     pire = cur = 0
     for t in trades:
-        if t["r"] < -0.05:
+        if t[cle] < -0.05:
             cur += 1
             pire = max(pire, cur)
-        elif t["r"] > 0.05:
+        elif t[cle] > 0.05:
             cur = 0
     return pire
 
 
-def ligne(nom, L):
+def ligne(nom, L, cle="r"):
     if not L:
         return f"  {nom:<22} aucun signal"
-    r = [t["r"] for t in L]
+    r = [t[cle] for t in L]
     g = [x for x in r if x > 0.05]
     p = [x for x in r if x < -0.05]
     pf = sum(g) / -sum(p) if p else float("inf")
@@ -85,10 +86,32 @@ def main(argv):
     print(f"nuls (|R| <= 0,05) : {n - len(g) - len(p)} | plus longue serie de pertes : {serie_pertes(clos)}")
     pire, _ = tr.recul(r)
     print(f"pire creux de la courbe en R : -{pire:.1f} R")
-    print("\nPar mois :")
     mois = {}
     for t in clos:
         mois.setdefault(t["t"].strftime("%Y-%m"), []).append(t)
+    # --- R REEL : d'apres le % du capital ecrit par le canal (1 % de risque par signal reparti entre les TP, stop remonte au point mort apres TP1) ---
+    suspects = [t for t in clos if t.get("suspect")]
+    for t in clos:
+        t["rr_reel"] = t["pct"] / 1.0            # 1 % de risque = 1 R
+    sans_pct = [t for t in clos if abs(t["pct"]) < 1e-9 and abs(t["r"]) > 0.05]
+    print("\n" + "=" * 100)
+    print("R REEL ENCAISSE (d'apres le % du capital des messages : partiels aux TP, point mort apres TP1 ; 1 % de risque = 1 R)")
+    print(f"signaux au % illisible mis a 0 : {len(suspects)} | signaux avec un R mais sans % : {len(sans_pct)} (comptes a 0 dans cette mesure : elle est PRUDENTE si ce sont des gagnants)")
+    rg = [x["rr_reel"] for x in clos if x["rr_reel"] > 0.05]
+    rp = [x["rr_reel"] for x in clos if x["rr_reel"] < -0.05]
+    mr, lor, hir = ic_jours(clos, cle="rr_reel")
+    print(f"R reel total {sum(x['rr_reel'] for x in clos):+.1f} (contre {sum(r):+.1f} R mesure sur le TP le plus loin) | R reel moyen par signal {mr:+.3f} [IC 95 % par jour : {lor:+.3f} ; {hir:+.3f}]")
+    if rg and rp:
+        print(f"gain moyen {statistics.fmean(rg):+.2f} R ({len(rg)}) | perte moyenne {statistics.fmean(rp):+.2f} R ({len(rp)}) | RR REEL {statistics.fmean(rg) / -statistics.fmean(rp):.2f} | facteur de profit {sum(rg) / -sum(rp):.2f}")
+    print(f"plus longue serie de pertes : {serie_pertes(clos, 'rr_reel')} | pire creux : -{tr.recul([x['rr_reel'] for x in clos])[0]:.1f} R")
+    print("Par mois (R reel) :")
+    for k in sorted(mois):
+        print(ligne(k, mois[k], "rr_reel"))
+    print("Periodes recentes (R reel) :")
+    for jours in (30, 90):
+        print(ligne(f"{jours} derniers jours", [t for t in clos if t["t"] >= clos[-1]["t"] - timedelta(days=jours)], "rr_reel"))
+    print("=" * 100)
+    print("\nPar mois (R du TP le plus loin atteint) :")
     for k in sorted(mois):
         print(ligne(k, mois[k]))
     print("\nPar sens :")
