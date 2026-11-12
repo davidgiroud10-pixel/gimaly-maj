@@ -6,6 +6,7 @@ Ce que fait le patch : dans trading.py, pour un signal PROPRE au bot (genre scal
 mesuree au moment de l'ordre est multipliee par k ; l'objectif (1,5 R de la nouvelle distance) et le volume (1 % de risque) suivent. Les amis recoivent des
 distances deja multipliees (distance publiee = celle du trade). k = 1 ou reglage absent = comportement actuel.
 Ajoute aussi trading_keltner_large_k: 1.5 dans config.local.yaml (sauvegarde config.local.yaml.avant_keltner_k) et note la date dans GIMALY\\trading\\notes_reglages.txt.
+Option --lots : ramene trading_lots_max a (valeur d'origine / k), pour que le risque en euros par trade reste celui d'avant quand le plafond de lots est atteint (voir ci-dessous).
 Retour arriere : --annuler (restaure trading.py et config.local.yaml). Pour changer k : modifier la valeur dans config.local.yaml puis redemarrer le bot.
 Idempotent. Rien n'est ecrit si un repere manque ou si le fichier ne compile plus.
 Usage (dossier gimaly) : .\\.venv\\Scripts\\python.exe patch_keltner_large_k.py [--annuler]   puis .\\.venv\\Scripts\\python.exe redemarrer_bot.py"""
@@ -57,7 +58,44 @@ def ecrire_fichier(p, texte, bom, crlf):
     p.write_bytes((b"\xef\xbb\xbf" if bom else b"") + sortie.encode("utf-8"))
 
 
+def lire_cle(texte, cle, defaut):
+    m = re.search(rf"^\s*{cle}\s*:\s*([0-9.]+)", texte or "", re.M)
+    return float(m.group(1)) if m else defaut
+
+
+def regler_lots():
+    """trading_lots_max = valeur d'origine / k. Valeur d'origine lue dans la sauvegarde de la config (avant le patch), sinon 1,5 (defaut du bot)."""
+    if not CFG.exists():
+        print("config.local.yaml introuvable.")
+        return 1
+    cfg, bom, crlf = lire_fichier(CFG)
+    k = lire_cle(cfg, CLE, 1.0)
+    base = 1.5
+    if CFG_SAUV.exists():
+        base = lire_cle(lire_fichier(CFG_SAUV)[0], "trading_lots_max", 1.5)
+    else:
+        base = lire_cle(cfg, "trading_lots_max", 1.5) * (k if "trading_lots_max_k" in cfg else 1.0)
+        shutil.copy2(CFG, CFG_SAUV)
+    cible = round(base / k, 2) if k > 0 else base
+    ligne = f"trading_lots_max: {cible:g}          # 12/11 : plafond d'origine {base:g} / k {k:g} = meme risque en euros par trade"
+    if re.search(r"^\s*trading_lots_max\s*:", cfg, re.M):
+        nouveau = re.sub(r"^\s*trading_lots_max\s*:[^\r\n]*", ligne, cfg, flags=re.M)
+    else:
+        nouveau = cfg.rstrip("\n") + "\n" + ligne + "\n"
+    ecrire_fichier(CFG, nouveau, bom, crlf)
+    try:
+        NOTES.parent.mkdir(parents=True, exist_ok=True)
+        with open(NOTES, "a", encoding="utf-8") as f:
+            f.write(f"{datetime.now():%d/%m/%Y %H:%M} : trading_lots_max = {cible:g} (origine {base:g} / k {k:g})\n")
+    except OSError:
+        pass
+    print(f"trading_lots_max = {cible:g} (origine {base:g}, k = {k:g}). Relance le bot : .\\.venv\\Scripts\\python.exe redemarrer_bot.py")
+    return 0
+
+
 def main():
+    if "--lots" in sys.argv:
+        return regler_lots()
     if "--annuler" in sys.argv:
         ok = False
         for src, dst in ((SAUVEGARDE, F), (CFG_SAUV, CFG)):
