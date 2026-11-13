@@ -31,6 +31,7 @@ Usage (dossier gimaly\cvd_m3_independant) :
   python cvd_m3_sim.py --etat         dit s'il tourne et affiche ses derniers chiffres
   python cvd_m3_sim.py --arreter      l'arrete proprement (positions fictives ouvertes conservees pour la reprise)
   python cvd_m3_sim.py --bilan        bilan quotidien (voir cvd_m3_bilan.py)
+  python cvd_m3_sim.py --configurer NUMERO "CHEMIN\\terminal64.exe"   enregistre le compte demo et le terminal MT5 reserves a ce bot
   python cvd_m3_sim.py --verifier     controle du compte/terminal/symbole MT5, SANS ordre
   python cvd_m3_sim.py --activer-ordres DEMO-OK / --desactiver-ordres     active/coupe les ordres demo (apres verification)
   python cvd_m3_sim.py --pause-entrees / --reprendre-entrees              coupe/reprend les NOUVELLES entrees sans toucher aux positions
@@ -712,6 +713,20 @@ def main():
         return arreter()
     if "--etat" in a:
         return etat()
+    if "--configurer" in a:
+        r = a[a.index("--configurer") + 1:]
+        if len(r) < 2 or not r[0].isdigit() or not r[1].lower().endswith("terminal64.exe"):
+            print('Usage : python cvd_m3_sim.py --configurer NUMERO_DU_COMPTE_DEMO "C:\\MT5-CVD\\terminal64.exe"')
+            return 1
+        sys.path.insert(0, str(RACINE))
+        import cvd_m3_ordres as OR
+        OR.lire_config(RACINE, None, print)
+        p = RACINE / "cvd_m3_config.json"
+        d = json.loads(p.read_text(encoding="utf-8"))
+        d["compte_attendu"], d["chemin_terminal"] = int(r[0]), r[1]
+        p.write_text(json.dumps(d, indent=2), encoding="utf-8")
+        print(f"Config enregistree : compte {r[0]}, terminal {r[1]}. Les ordres restent {'ACTIFS' if d.get('ordres_demo') else 'DESACTIVES'}. Lance --verifier.")
+        return 0
     if "--verifier" in a:
         return verifier(args)
     if "--activer-ordres" in a:

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import csv
 import json
+import ntpath
 import os
 import re
 import time
@@ -30,13 +31,13 @@ CONFIG_DEFAUT = {
     "sl_usd": 2.0,
     "tp_usd": 4.0,
     "magics": MAGICS_DEFAUT,
-    "max_ouvertes_par_ema": 10,
-    "max_ouvertes_total": 20,
+    "max_ouvertes_par_ema": 3,
+    "max_ouvertes_total": 6,
     "perte_jour_max": 100.0,          # monnaie du compte ; realise + flottant des trois EMA depuis minuit (heure du PC)
     "deviation_points": 20,
     "age_signal_max_s": 2.0,
-    "chemin_terminal": "",            # vide = terminal par defaut ; sinon chemin de terminal64.exe d'un terminal SEPARE
-    "compte_attendu": 0,              # 0 = pas de controle ; sinon numero de compte exige
+    "chemin_terminal": "",            # chemin de terminal64.exe du terminal MT5 RESERVE a ce bot (obligatoire pour les ordres)
+    "compte_attendu": 0,              # numero du compte demo de ce bot (obligatoire pour les ordres)
     "autoriser_compte_gimaly": False,
 }
 COL = ["date", "ts", "evenement", "ema", "sens", "event_id", "ticket", "volume", "prix_signal", "prix_demande", "prix_exec", "ecart_points", "sl", "tp", "retcode",
@@ -169,8 +170,18 @@ class Ordres:
         if not getattr(compte, "trade_allowed", True):
             return False, "trading non autorise sur ce compte", infos
         attendu = int(self.cfg.get("compte_attendu") or 0)
-        if attendu and compte.login != attendu:
-            return False, f"compte {compte.login} different du compte attendu {attendu}", infos
+        if not attendu:
+            return False, "compte_attendu non renseigne dans cvd_m3_config.json (obligatoire pour les ordres)", infos
+        if compte.login != attendu:
+            return False, f"compte {compte.login} different du compte attendu {attendu} : refus", infos
+        ch = (self.cfg.get("chemin_terminal") or "").strip()
+        if not ch:
+            return False, "chemin_terminal non renseigne dans cvd_m3_config.json (obligatoire pour les ordres)", infos
+        voulu = ntpath.normcase(ntpath.normpath(ntpath.dirname(ch) if ch.lower().endswith(".exe") else ch))
+        reel = ntpath.normcase(ntpath.normpath(getattr(term, "path", "") or ""))
+        infos["terminal_attendu"] = voulu
+        if reel != voulu:
+            return False, f"terminal MT5 utilise ({getattr(term, 'path', '')}) different du terminal configure ({ch}) : refus", infos
         login_g, magic_g = lire_gimaly(self.racine_gimaly)
         if magic_g in self.magics().values():
             return False, f"un magic number du simulateur est celui de GIMALY ({magic_g})", infos

@@ -26,7 +26,7 @@ class F:
         s.mode=0; s.margin=2; s.login=555; s.connecte=True; s.algo=True; s.stops=0; s.vmin=0.01; s.vstep=0.01
         s.bid=3880.0; s.ask=3880.2; s.envois=[]; s.positions=[]; s.deals=[]; s.retcode=10009; s.perdu=False; s.tk_none=False; s.n=100
     def account_info(s): return types.SimpleNamespace(login=s.login,server="Demo-1",trade_mode=s.mode,margin_mode=s.margin,balance=1000.0,currency="EUR",trade_allowed=True)
-    def terminal_info(s): return types.SimpleNamespace(connected=s.connecte,trade_allowed=s.algo,path="C:\\MT5")
+    def terminal_info(s): return types.SimpleNamespace(connected=s.connecte,trade_allowed=s.algo,path=getattr(s,"chemin","C:\\MT5"))
     def symbol_info(s,n): return types.SimpleNamespace(volume_min=s.vmin,volume_max=100,volume_step=s.vstep,point=0.01,digits=2,trade_stops_level=s.stops,trade_freeze_level=0,spread=20,trade_mode=4,filling_mode=3,trade_contract_size=100.0)
     def symbol_info_tick(s,n): return None if s.tk_none else types.SimpleNamespace(bid=s.bid,ask=s.ask,time=int(time.time()))
     def positions_get(s,symbol=None): return tuple(s.positions)
@@ -44,7 +44,7 @@ class F:
         s.n+=1; p=types.SimpleNamespace(ticket=s.n,magic=req["magic"],comment=req["comment"],type=req["type"],price_open=req["price"],profit=0.0,sl=req["sl"],tp=req["tp"]); s.positions.append(p); return p
 def mk(cfg_extra=None, fake=None):
     d=Path(tempfile.mkdtemp()); rg=Path(tempfile.mkdtemp()); (rg/"config.local.yaml").write_text("trading_mt5_compte: 999\ntrading_magic: 770923\n")
-    cfg=json.loads(json.dumps(O.CONFIG_DEFAUT)); cfg["ordres_demo"]=True; cfg.update(cfg_extra or {})
+    cfg=json.loads(json.dumps(O.CONFIG_DEFAUT)); cfg["ordres_demo"]=True; cfg["compte_attendu"]=555; cfg["chemin_terminal"]="C:\\MT5\\terminal64.exe"; cfg.update(cfg_extra or {})
     f=fake or F(); logs=[]
     o=O.Ordres(f,d,"XAUUSD",cfg,logs.append,rg); return o,f,d,logs,rg
 def evt(n=5,sens="BUY",ms=1,age=0.0):
@@ -56,7 +56,8 @@ def rows(d,n):
 # desactive -> rien
 o,f,d,l,_=mk({"ordres_demo":False}); assert not o.traiter(evt(),0.3,0.1) and not f.envois
 # demo/hedging : un ordre, bons champs
-o,f,d,l,_=mk(); assert o.traiter(evt(5,"BUY",1),0.3,0.1); r=f.envois[0]
+o,f,d,l,_=mk(); assert O.CONFIG_DEFAUT["max_ouvertes_par_ema"]==3 and O.CONFIG_DEFAUT["max_ouvertes_total"]==6 and O.CONFIG_DEFAUT["ordres_demo"] is False
+assert o.traiter(evt(5,"BUY",1),0.3,0.1); r=f.envois[0]
 assert r["action"]==1 and r["type"]==0 and r["volume"]==0.02 and r["magic"]==771005 and "position" not in r and r["price"]==3880.2 and r["sl"]==3878.2 and r["tp"]==3884.2, r
 assert o.traiter(evt(9,"SELL",2),0.3,0.1); r=f.envois[1]; assert r["type"]==1 and r["magic"]==771009 and r["price"]==3880.0 and r["sl"]==3882.0 and r["tp"]==3876.0
 assert o.traiter(evt(14,"BUY",3),0.3,0.1) and f.envois[2]["magic"]==771014
@@ -66,10 +67,13 @@ assert rows(d,5)[0]["evenement"]=="ENTREE" and rows(d,5)[0]["ticket"]; print("or
 n0=len(f.envois); assert not o.traiter(evt(5,"BUY",1),0.3,0.1) and len(f.envois)==n0
 o2=O.Ordres(f,d,"XAUUSD",o.cfg,lambda m:None,Path(tempfile.mkdtemp())); assert not o2.traiter(evt(5,"BUY",1),0.3,0.1) and len(f.envois)==n0; print("anti-doublon OK (meme apres redemarrage)")
 # compte reel -> refus absolu ; netting ; meme compte que GIMALY ; terminal/algo ; compte attendu
-for champ,val,mot in (("mode",2,"NON demo"),("margin",0,"hedging"),("connecte",False,"connecte"),("algo",False,"Algo"),("login",999,"GIMALY")):
-    o,f,d,l,_=mk(); setattr(f,champ,val); assert not o.traiter(evt(),0.3,0.1) and not f.envois, champ; assert mot in rows(d,5)[0]["detail"], (champ,rows(d,5)[0]["detail"])
+for champ,val,mot in (("mode",2,"NON demo"),("margin",0,"hedging"),("connecte",False,"connecte"),("algo",False,"Algo"),("login",999,"GIMALY"),("login",777,"compte attendu"),("chemin","C:\\MT5-GIMALY","terminal configure")):
+    o,f,d,l,_=mk({"compte_attendu":999} if (champ,val)==("login",999) else None); setattr(f,champ,val); assert not o.traiter(evt(),0.3,0.1) and not f.envois, champ; assert mot in rows(d,5)[0]["detail"], (champ,rows(d,5)[0]["detail"])
 o,f,d,l,_=mk({"compte_attendu":123}); assert not o.traiter(evt(),0.3,0.1) and not f.envois
-o,f,d,l,_=mk({"autoriser_compte_gimaly":True}); f.login=999; assert o.traiter(evt(),0.3,0.1)
+o,f,d,l,_=mk({"compte_attendu":0}); assert not o.traiter(evt(),0.3,0.1) and not f.envois and "obligatoire" in rows(d,5)[0]["detail"]
+o,f,d,l,_=mk({"chemin_terminal":""}); assert not o.traiter(evt(),0.3,0.1) and not f.envois and "obligatoire" in rows(d,5)[0]["detail"]
+o,f,d,l,_=mk({"chemin_terminal":"c:\\mt5\\"}); assert o.traiter(evt(),0.3,0.1)   # casse / separateur final sans importance
+o,f,d,l,_=mk({"autoriser_compte_gimaly":True,"compte_attendu":999}); f.login=999; assert o.traiter(evt(),0.3,0.1)
 # le compte devient reel ENTRE l'autorisation et l'envoi : refus quand meme
 o,f,d,l,_=mk(); orig=o._autoriser
 def piege(e,a,b):
