@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CVD M3 · Tableau de bord</title>
+<style>
+:root{--bg:#070d17;--panel:#0e1726;--panel2:#121d30;--bord:#1f2d44;--txt:#e6edf7;--mut:#7f93ad;--ok:#34d399;--ko:#f87171;--warn:#f5b942;--c5:#2dd4bf;--c9:#f5b942;--c14:#a78bfa;--acc:#4aa3ff}
+*{box-sizing:border-box}html,body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.45 system-ui,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:1280px;margin:0 auto;padding:16px}
+h1{font-size:18px;margin:0;letter-spacing:.04em}h2{font-size:12px;letter-spacing:.14em;color:var(--mut);margin:22px 0 8px;font-weight:600;text-transform:uppercase}
+.top{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between}
+.pills{display:flex;flex-wrap:wrap;gap:8px}.pill{background:var(--panel);border:1px solid var(--bord);border-radius:999px;padding:4px 12px;font-size:12px;color:var(--mut)}
+.pill b{color:var(--txt);font-weight:600}.pill.ok b{color:var(--ok)}.pill.ko b{color:var(--ko)}.pill.warn b{color:var(--warn)}
+.banner{margin-top:12px;padding:10px 14px;border-radius:10px;border:1px solid var(--ko);background:#2a1216;color:#ffd5d5;display:none}
+.banner.on{display:block}.note{margin-top:8px;padding:8px 12px;border-radius:10px;border:1px solid #5b4a1a;background:#241d0b;color:#f3dca0;font-size:12.5px}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.tile{background:var(--panel);border:1px solid var(--bord);border-radius:12px;padding:10px 14px}
+.tile .l{font-size:11px;letter-spacing:.12em;color:var(--mut);text-transform:uppercase}.tile .v{font-size:22px;font-weight:650;margin-top:2px;font-variant-numeric:tabular-nums}
+.tile .s{font-size:12px;color:var(--mut);margin-top:2px}
+.pos{color:var(--ok)}.neg{color:var(--ko)}.neu{color:var(--txt)}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:12px}
+.card{background:var(--panel);border:1px solid var(--bord);border-radius:14px;padding:14px;border-top:3px solid var(--c)}
+.card h3{margin:0 0 10px;font-size:15px;display:flex;justify-content:space-between;align-items:baseline}.card h3 small{color:var(--mut);font-weight:400;font-size:12px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}.mini{background:var(--panel2);border-radius:10px;padding:8px 10px}
+.mini .l{font-size:10.5px;letter-spacing:.1em;color:var(--mut);text-transform:uppercase}.mini .v{font-size:17px;font-weight:620;font-variant-numeric:tabular-nums}.mini .s{font-size:11.5px;color:var(--mut)}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}th,td{padding:6px 8px;text-align:right;border-bottom:1px solid var(--bord)}th{font-size:11px;letter-spacing:.1em;color:var(--mut);font-weight:600;text-transform:uppercase}
+th:first-child,td:first-child{text-align:left}.box{background:var(--panel);border:1px solid var(--bord);border-radius:14px;padding:12px;overflow-x:auto}
+.legend{display:flex;gap:16px;font-size:12px;color:var(--mut);margin-bottom:6px}.sw{display:inline-block;width:18px;height:3px;border-radius:2px;vertical-align:middle;margin-right:6px}
+svg text{fill:var(--mut);font-size:11px}.rang{display:inline-block;min-width:22px;text-align:center;border-radius:6px;background:var(--panel2);padding:1px 6px;color:var(--txt)}
+.foot{margin:22px 0 6px;color:var(--mut);font-size:12px}
+@media (max-width:520px){.grid2{grid-template-columns:1fr}.tile .v{font-size:19px}}
+</style></head><body><div class="wrap">
+<div class="top"><h1>CVD M3 · EMA 5 / 9 / 14 <span style="color:var(--mut);font-weight:400">— résultats réels MT5</span></h1><div class="pills" id="pills"></div></div>
+<div class="banner" id="banner"></div>
+<h2>Récapitulatif global</h2><div class="tiles" id="global"></div>
+<h2>Classement automatique</h2><div class="box" id="classement"></div>
+<h2>Évolution du résultat net cumulé (EUR)</h2><div class="box"><div class="legend" id="legende"></div><div id="courbe"></div></div>
+<h2>Détail par EMA</h2><div class="cards" id="cartes"></div>
+<h2>Résultats par jour et cumul</h2><div class="box" id="jours"></div>
+<div class="foot" id="pied"></div>
+</div>
+<script>
+"use strict";
+const COUL={5:"var(--c5)",9:"var(--c9)",14:"var(--c14)"},HEX={5:"#2dd4bf",9:"#f5b942",14:"#a78bfa"};
+let D=null,derniereOk=0;
+const $=id=>document.getElementById(id);
+function dev(){return (D&&D.compte&&D.compte.devise)||"EUR"}
+function eur(x,sign){if(x===null||x===undefined||isNaN(x))return "–";const s=new Intl.NumberFormat("fr-FR",{style:"currency",currency:dev(),minimumFractionDigits:2}).format(Math.abs(x));return (x<0?"−":(sign&&x>0?"+":""))+s}
+function cls(x){return x>0?"pos":x<0?"neg":"neu"}
+function pct(x){return x===null||x===undefined?"–":x.toFixed(1).replace(".",",")+" %"}
+function pf(x){return x===null||x===undefined?"–":x==="inf"?"∞":String(x).replace(".",",")}
+function tuile(l,v,s,c){return `<div class="tile"><div class="l">${l}</div><div class="v ${c||""}">${v}</div><div class="s">${s||""}</div></div>`}
+function mini(l,v,s,c){return `<div class="mini"><div class="l">${l}</div><div class="v ${c||""}">${v}</div><div class="s">${s||"&nbsp;"}</div></div>`}
+function pill(l,v,t){return `<span class="pill ${t||""}">${l} <b>${v}</b></span>`}
+function rendu(){
+  if(!D)return;
+  const age=Math.round(Date.now()/1000-D.maj),perime=age>30;
+  const b=$("banner");
+  if(D.erreur||perime){b.className="banner on";b.textContent=D.erreur?("⚠ "+D.erreur):("⚠ Données non actualisées depuis "+age+" s : le tableau ne reçoit plus MT5.")}else b.className="banner";
+  const c=D.compte||{},eb=D.etat_bot||{};
+  $("pills").innerHTML=[c.login?pill("Compte",c.login+(c.demo?" · DÉMO":" · RÉEL !"),c.demo?"ok":"ko"):"",
+    c.login?pill("Solde",eur(c.solde)+" · équité "+eur(c.equite)):"",
+    pill("Simulateur",eb.simulateur_actif?"actif":"arrêté",eb.simulateur_actif?"ok":"warn"),
+    pill("Ordres démo",eb.ordres_actives===null?"?":(eb.pause?"en pause":(eb.ordres_actives?"activés":"désactivés")),eb.ordres_actives&&!eb.pause?"ok":"warn"),
+    pill("Mise à jour","il y a "+Math.max(age,0)+" s",perime?"ko":"")].join("");
+  if(!D.global||!D.emas||!Object.keys(D.emas).length){return}
+  const g=D.global;
+  $("global").innerHTML=tuile("Résultat net réalisé",eur(g.net,1),`brut ${eur(g.brut,1)} · frais ${eur(g.frais,1)}`,cls(g.net))+
+    tuile("Flottant",eur(g.flottant,1),g.ouvertes+" position(s) ouverte(s)",cls(g.flottant))+
+    tuile("Trades",g.trades,`${g.gagnants} gagnants · ${g.perdants} perdants`)+
+    tuile("Winrate",pct(g.winrate),`TP ${g.tp} · SL ${g.sl}`)+tuile("Profit Factor",pf(g.pf),`moyenne ${eur(g.moyenne,1)} / trade`)+
+    tuile("Drawdown max",eur(-g.drawdown),"sur le net réalisé","neg")+tuile("Simultanées max",g.simultanees_max,`BUY ${g.buy} · SELL ${g.sell}`);
+  const k=D.classement,E=D.emas;
+  $("classement").innerHTML=`<table><thead><tr><th>Rang</th><th>EMA</th><th>Net</th><th>Profit Factor</th><th>Winrate</th><th>Drawdown</th><th>Trades</th><th>Rang net / PF / winrate / DD</th></tr></thead><tbody>`+
+    k.ordre.map((n,i)=>{const e=E[n],r=k.rangs[n];return `<tr><td><span class="rang">${i+1}</span></td><td style="color:${HEX[n]};font-weight:650">EMA ${n}</td><td class="${cls(e.net)}">${eur(e.net,1)}</td><td>${pf(e.pf)}</td><td>${pct(e.winrate)}</td><td class="neg">${eur(-e.drawdown)}</td><td>${e.trades}</td><td>${r.net} / ${r.pf} / ${r.winrate} / ${r.drawdown}</td></tr>`}).join("")+
+    `</tbody></table>`+(k.avertissement?`<div class="note">${k.avertissement}</div>`:"");
+  courbe(E);
+  $("cartes").innerHTML=Object.keys(E).map(n=>{const e=E[n];return `<div class="card" style="--c:${COUL[n]}"><h3><span style="color:${HEX[n]}">EMA ${n}</span><small>magic ${D.magics[n]}</small></h3><div class="grid2">`+
+    mini("Net réalisé",eur(e.net,1),`brut ${eur(e.brut,1)} · frais ${eur(e.frais,1)}`,cls(e.net))+mini("Flottant",eur(e.flottant,1),e.ouvertes+" position(s) ouverte(s)",cls(e.flottant))+
+    mini("Gagnants / perdants",`${e.gagnants} / ${e.perdants}`,`${e.trades} trades · TP ${e.tp} · SL ${e.sl}`)+mini("Winrate",pct(e.winrate),`BUY ${e.buy} · SELL ${e.sell}`)+
+    mini("Profit Factor",pf(e.pf),`moyenne ${eur(e.moyenne,1)}`)+mini("Drawdown max",eur(-e.drawdown),`simultanées max ${e.simultanees_max}`,"neg")+`</div></div>`}).join("");
+  jours(E);
+  $("pied").textContent=`Résultats nets = profit + commissions + swaps des vrais ordres MT5 (magic numbers ${Object.values(D.magics).join(" / ")}), en ${dev()}. Historique conservé : ${D.jours_cache} jour(s) avec trades. Lecture seule : aucun ordre n'est envoyé depuis cette page.`;
+}
+function courbe(E){
+  const W=1100,H=300,L=64,R=14,T=12,B=28,ns=Object.keys(E);
+  const pts=[].concat(...ns.map(n=>E[n].serie));
+  if(!pts.length){$("courbe").innerHTML='<div style="color:var(--mut);padding:30px">Pas encore de trade clôturé.</div>';$("legende").innerHTML="";return}
+  const xs=pts.map(p=>p[0]),ys=pts.map(p=>p[1]).concat([0]);
+  let x0=Math.min(...xs),x1=Math.max(...xs),y0=Math.min(...ys),y1=Math.max(...ys);if(x1===x0)x1=x0+60;if(y1===y0){y1+=1;y0-=1}
+  const m=(y1-y0)*.08;y0-=m;y1+=m;
+  const X=x=>L+(x-x0)/(x1-x0)*(W-L-R),Y=y=>T+(1-(y-y0)/(y1-y0))*(H-T-B);
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Résultat net cumulé par EMA">`;
+  for(let i=0;i<=4;i++){const v=y0+(y1-y0)*i/4,y=Y(v);s+=`<line x1="${L}" x2="${W-R}" y1="${y}" y2="${y}" stroke="#1f2d44"/><text x="${L-6}" y="${y+4}" text-anchor="end">${Math.round(v)}</text>`}
+  s+=`<line x1="${L}" x2="${W-R}" y1="${Y(0)}" y2="${Y(0)}" stroke="#4a5d7a" stroke-dasharray="4 4"/>`;
+  const fmt=t=>new Date(t*1000).toLocaleString("fr-FR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit",timeZone:"UTC"});
+  for(let i=0;i<=4;i++){const t=x0+(x1-x0)*i/4;s+=`<text x="${X(t)}" y="${H-8}" text-anchor="${i==0?"start":i==4?"end":"middle"}">${fmt(t)}</text>`}
+  ns.forEach(n=>{const sr=E[n].serie;if(!sr.length)return;const d=sr.map((p,i)=>(i?"L":"M")+X(p[0]).toFixed(1)+" "+Y(p[1]).toFixed(1)).join(" ");
+    s+=`<path d="${d}" fill="none" stroke="${HEX[n]}" stroke-width="2.2" stroke-linejoin="round"/><circle cx="${X(sr[sr.length-1][0])}" cy="${Y(sr[sr.length-1][1])}" r="3.5" fill="${HEX[n]}"/>`});
+  $("courbe").innerHTML=s+"</svg>";
+  $("legende").innerHTML=ns.map(n=>`<span><i class="sw" style="background:${HEX[n]}"></i>EMA ${n} : ${eur(E[n].net,1)}</span>`).join("");
+}
+function jours(E){
+  const ns=Object.keys(E),tous=new Set();ns.forEach(n=>E[n].jours.forEach(j=>tous.add(j.jour)));
+  const liste=[...tous].sort().reverse().slice(0,60);
+  if(!liste.length){$("jours").innerHTML='<div style="color:var(--mut);padding:10px">Aucun jour avec trade clôturé.</div>';return}
+  const idx={};ns.forEach(n=>{idx[n]={};E[n].jours.forEach(j=>idx[n][j.jour]=j)});
+  const cumulTotal={};let c=0;[...tous].sort().forEach(j=>{c+=ns.reduce((a,n)=>a+(idx[n][j]?idx[n][j].net:0),0);cumulTotal[j]=c});
+  let h=`<table><thead><tr><th rowspan="2">Jour</th>`+ns.map(n=>`<th colspan="3" style="text-align:center;color:${HEX[n]}">EMA ${n}</th>`).join("")+`<th colspan="2" style="text-align:center">Total</th></tr><tr>`+
+    ns.map(()=>"<th>Trades</th><th>Net</th><th>Cumul</th>").join("")+"<th>Net</th><th>Cumul</th></tr></thead><tbody>";
+  liste.forEach(j=>{let tot=0;h+=`<tr><td>${j.split("-").reverse().join("/")}</td>`;ns.forEach(n=>{const x=idx[n][j];tot+=x?x.net:0;h+=x?`<td>${x.n}</td><td class="${cls(x.net)}">${eur(x.net,1)}</td><td class="${cls(x.cumul)}">${eur(x.cumul,1)}</td>`:"<td>–</td><td>–</td><td>–</td>"});
+    h+=`<td class="${cls(tot)}">${eur(tot,1)}</td><td class="${cls(cumulTotal[j])}">${eur(cumulTotal[j],1)}</td></tr>`});
+  $("jours").innerHTML=h+"</tbody></table>";
+}
+async function charger(){
+  try{const r=await fetch("/api/donnees",{cache:"no-store"});if(!r.ok)throw new Error(r.status);D=await r.json();derniereOk=Date.now()}
+  catch(e){D=D||{};D.erreur="Impossible de joindre le tableau de bord (processus arrêté ?)";D.maj=D.maj||0}
+  rendu();
+}
+charger();setInterval(charger,5000);setInterval(rendu,1000);
+</script></body></html>
