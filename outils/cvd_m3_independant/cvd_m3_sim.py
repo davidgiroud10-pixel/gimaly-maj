@@ -1,10 +1,13 @@
 # -*- coding: utf-8 -*-
 r"""cvd_m3_sim.py - SIMULATEUR INDEPENDANT du bot XAUUSD "croisement CVD M3 / EMA 5, 9, 14". Processus Windows separe de GIMALY. AUCUN ORDRE (ni reel ni demo).
 
+VERSION 2 : meme simulation + (DESACTIVE par defaut) ordres DEMO via cvd_m3_ordres.py, pilotes par cvd_m3_config.json. La simulation reste la reference : elle continue quoi qu'il arrive
+(limites, pause des entrees...) pour que les statistiques ne soient pas faussees.
 Ce programme :
   * LIT (lecture seule, ouverture de quelques ms) ~\GIMALY\trading\icebergs_etat.json -> champ flux.cvd (CVD de session des futures GC, ecrit par le moteur chaque seconde)
     et, UNIQUEMENT pour l'amorcage au demarrage, les dernieres lignes de ~\GIMALY\trading\flux_minute.csv ;
-  * LIT le bid/ask XAUUSD dans MT5 avec sa propre connexion (symbol_info_tick, symbol_info, symbols_get : lectures uniquement ; aucune fonction d'ordre, controle par test) ;
+  * LIT le bid/ask XAUUSD dans MT5 avec sa propre connexion (symbol_info_tick, symbol_info, symbols_get : lectures) ; la SEULE fonction d'ordre du programme est dans cvd_m3_ordres.py et reste inactive
+    tant que "ordres_demo" vaut false dans cvd_m3_config.json ;
   * n'ECRIT que dans son propre dossier (celui de ce fichier) : journaux CSV, log, etat. Il n'importe aucun module GIMALY, ne modifie aucun fichier du moteur, ne redemarre
     rien, ne ferme aucun processus autre que lui-meme.
 
@@ -28,6 +31,9 @@ Usage (dossier gimaly\cvd_m3_independant) :
   python cvd_m3_sim.py --etat         dit s'il tourne et affiche ses derniers chiffres
   python cvd_m3_sim.py --arreter      l'arrete proprement (positions fictives ouvertes conservees pour la reprise)
   python cvd_m3_sim.py --bilan        bilan quotidien (voir cvd_m3_bilan.py)
+  python cvd_m3_sim.py --verifier     controle du compte/terminal/symbole MT5, SANS ordre
+  python cvd_m3_sim.py --activer-ordres DEMO-OK / --desactiver-ordres     active/coupe les ordres demo (apres verification)
+  python cvd_m3_sim.py --pause-entrees / --reprendre-entrees              coupe/reprend les NOUVELLES entrees sans toucher aux positions
   python cvd_m3_sim.py                (sans option) tourne au premier plan, Ctrl+C pour arreter
 Autres options : --sans-amorcage ; --donnees DOSSIER (dossier des donnees GIMALY, defaut ~\GIMALY\trading)."""
 from __future__ import annotations
@@ -59,7 +65,7 @@ CONTRAT_DEFAUT = 100.0
 COLONNES = ["n", "ema", "sens", "date_signal", "ts_signal", "session", "age_session_s", "cvd", "ligne", "age_cvd_s", "bid", "ask", "spread", "entree", "sl", "tp",
             "simultanees", "date_sortie", "ts_sortie", "sortie", "resultat", "duree_s", "pnl_usd", "r", "reprise"]
 COL_FLUX = ["date_heure", "ts", "session", "cvd", "bid", "ask"]
-MT5_PERMIS = {"initialize", "shutdown", "symbol_info_tick", "symbol_info", "symbols_get", "last_error"}   # lectures uniquement (verifie par test)
+MT5_PERMIS = {"initialize", "shutdown", "symbol_info_tick", "symbol_info", "symbols_get", "last_error"}   # lectures (ce fichier) ; les ordres sont dans cvd_m3_ordres.py
 
 
 def session_horloge(t):
@@ -160,6 +166,8 @@ class Sim:
         self.dernier_t = None
         self.dernier_cvd = None
         self.nb_signaux = {n: 0 for n in EMAS}
+        self.evenements = []             # croisements a transmettre au module d'ordres (un par evenement)
+        self.vus = set()
 
     # ---- fichiers de sortie ----
     def chemin(self, n):
@@ -268,6 +276,14 @@ class Sim:
 
     def ouvrir(self, n, c, t, cvd, ligne, bid, ask, age):
         sens = "BUY" if c > 0 else "SELL"
+        eid = f"{n}-{int(t * 1000)}-{sens[0]}"          # EMA + instant du croisement + sens : un evenement = un seul id
+        if eid in self.vus:
+            self.log(f"evenement {eid} deja traite : ignore")
+            return
+        self.vus.add(eid)
+        if len(self.vus) > 5000:
+            self.vus = set(list(self.vus)[-1000:])
+        self.evenements.append({"n": n, "sens": sens, "event_id": eid, "ts_recu": time.time(), "bid": bid, "ask": ask, "cvd": cvd})
         entree = ask if sens == "BUY" else bid
         self.compteur[n] += 1
         self.ouvertes[n].append({
@@ -455,8 +471,12 @@ def boucle(args):
         log("module MetaTrader5 absent : arret (le simulateur a besoin du prix MT5)")
         return 4
     sim = None
+    ordres = None
     try:
-        if not mt5.initialize():
+        sys.path.insert(0, str(RACINE))
+        import cvd_m3_ordres as OR
+        cfg = OR.lire_config(dossier, None, log)
+        if not OR.connecter(mt5, cfg):
             log(f"MT5 injoignable ({mt5.last_error()}) : arret (GIMALY n'est pas touche)")
             return 5
         symbole = symbole_or(mt5, RACINE.parent)
@@ -464,14 +484,18 @@ def boucle(args):
         contrat = float(getattr(info, "trade_contract_size", 0) or CONTRAT_DEFAUT)
         sim = Sim(dossier, contrat, log)
         sim.preparer_fichiers()
-        log(f"SIMULATEUR CVD M3 demarre (pid {os.getpid()}) : symbole {symbole}, contrat {contrat:g} oz, lot {LOT} ; EMA {EMAS} ; AUCUN ORDRE ; donnees lues dans {donnees}")
+        ordres = OR.Ordres(mt5, dossier, symbole, cfg, log, RACINE.parent)
+        log(f"SIMULATEUR CVD M3 demarre (pid {os.getpid()}) : symbole {symbole}, contrat {contrat:g} oz, lot {LOT} ; EMA {EMAS} ; donnees lues dans {donnees}")
+        log("ORDRES DEMO : " + ("ACTIVES (verifies avant chaque ordre)" if cfg.get("ordres_demo") else "DESACTIVES (simulation seule, aucun ordre)"))
+        if (cfg["lot"], cfg["sl_usd"], cfg["tp_usd"]) != (LOT, SL_USD, TP_USD):
+            log("ATTENTION : lot/SL/TP du fichier de config differents de la simulation (0.02 / 2 / 4) : les resultats ne seront plus comparables")
         if not args.get("sans_amorcage"):
             try:
                 sim.amorcer(time.time(), donnees)
             except Exception as e:
                 log(f"amorcage impossible : {e!r}")
         derniere_mtime = None
-        t_tick = t_flux = t_etat_log = 0.0
+        t_tick = t_flux = t_etat_log = t_cfg = t_suivi = 0.0
         bid = ask = None
         attente_dite = False
         while True:
@@ -510,6 +534,24 @@ def boucle(args):
                     log(f"lecture tick MT5 : {e!r}")
             if nouveau and not attente_dite:
                 sim.nouvelle_valeur(mt, cvd, bid, ask, age)
+            for evt in sim.evenements:
+                try:
+                    ordres.traiter(evt, age if lu is not None else None, now - t_tick)
+                except Exception as e:
+                    log(f"ordres : erreur ignoree ({e!r})")
+            sim.evenements.clear()
+            if now - t_cfg >= 10:
+                t_cfg = now
+                nouvelle = OR.lire_config(dossier, ordres.cfg, log)
+                if bool(nouvelle.get("ordres_demo")) != bool(ordres.cfg.get("ordres_demo")):
+                    log("ORDRES DEMO " + ("ACTIVES" if nouvelle.get("ordres_demo") else "DESACTIVES") + " (cvd_m3_config.json)")
+                ordres.cfg = nouvelle
+            if now - t_suivi >= 5 and (ordres.cfg.get("ordres_demo") or ordres.ouverts):
+                t_suivi = now
+                try:
+                    ordres.suivre()
+                except Exception as e:
+                    log(f"ordres : suivi impossible ({e!r})")
             if bid is not None and (nouveau or any(sim.ouvertes.values())) and now - t_tick < 5:
                 sim.resoudre(bid, ask, now)
             if lu is not None and not attente_dite and now - t_flux >= PAS_FLUX_S:
@@ -600,6 +642,60 @@ def etat():
     return 0
 
 
+def _connexion(args):
+    """(mt5, cfg, ordres, symbole) pour les commandes de verification ; aucune boucle, aucun ordre."""
+    import MetaTrader5 as mt5
+    sys.path.insert(0, str(RACINE))
+    import cvd_m3_ordres as OR
+    cfg = OR.lire_config(RACINE, None, print)
+    if not OR.connecter(mt5, cfg):
+        print(f"MT5 injoignable ({mt5.last_error()}). Rien n'a ete fait.")
+        return None
+    symbole = symbole_or(mt5, RACINE.parent)
+    return mt5, cfg, OR.Ordres(mt5, RACINE, symbole, cfg, lambda m: print("  " + m), RACINE.parent), OR
+
+
+def verifier(args):
+    c = _connexion(args)
+    if c is None:
+        return 1
+    mt5, cfg, ordres, OR = c
+    try:
+        print("VERIFICATION (lecture seule : aucun ordre envoye, rien modifie dans MT5 ni dans GIMALY)\n")
+        tout = True
+        for nom, valeur, ok in ordres.rapport():
+            print(f"[{'OK' if ok else '!!'}] {nom} : {valeur}")
+            tout = tout and bool(ok)
+        print(f"\nOrdres demo dans la config : {'ACTIVES' if cfg.get('ordres_demo') else 'desactives'} | magic EMA5/9/14 : {ordres.magics()} | "
+              f"limites : {cfg['max_ouvertes_par_ema']} par EMA, {cfg['max_ouvertes_total']} au total, perte jour {cfg['perte_jour_max']}")
+        print("RESULTAT : " + ("tout est conforme" if tout else "au moins un point a corriger avant d'activer les ordres"))
+        return 0 if tout else 2
+    finally:
+        mt5.shutdown()
+
+
+def regler_ordres(valeur, args):
+    c = _connexion(args)
+    if c is None:
+        return 1
+    mt5, cfg, ordres, OR = c
+    try:
+        if valeur:
+            ok, why, _ = ordres.verifier_compte()
+            oks, raisons, _ = ordres.verifier_symbole()
+            if not (ok and oks):
+                print("Activation REFUSEE : " + (why if not ok else "; ".join(raisons)))
+                return 2
+        p = RACINE / "cvd_m3_config.json"
+        d = json.loads(p.read_text(encoding="utf-8"))
+        d["ordres_demo"] = bool(valeur)
+        p.write_text(json.dumps(d, indent=2), encoding="utf-8")
+        print("Ordres demo " + ("ACTIVES" if valeur else "DESACTIVES") + " (pris en compte par le simulateur en cours sous 10 s). Les positions deja ouvertes ne sont pas touchees.")
+        return 0
+    finally:
+        mt5.shutdown()
+
+
 def lire_args(a):
     r = {"sans_amorcage": "--sans-amorcage" in a}
     if "--donnees" in a:
@@ -616,6 +712,26 @@ def main():
         return arreter()
     if "--etat" in a:
         return etat()
+    if "--verifier" in a:
+        return verifier(args)
+    if "--activer-ordres" in a:
+        if a[a.index("--activer-ordres") + 1:][:1] != ["DEMO-OK"]:
+            print("Pour activer : python cvd_m3_sim.py --activer-ordres DEMO-OK  (apres avoir lu la procedure et lance --verifier)")
+            return 1
+        return regler_ordres(True, args)
+    if "--desactiver-ordres" in a:
+        return regler_ordres(False, args)
+    if "--pause-entrees" in a:
+        (RACINE / "cvd_m3_pause_entrees.flag").write_text("pause", encoding="utf-8")
+        print("Nouvelles entrees EN PAUSE (la simulation continue, les positions ouvertes ne sont pas touchees). Reprise : --reprendre-entrees")
+        return 0
+    if "--reprendre-entrees" in a:
+        try:
+            (RACINE / "cvd_m3_pause_entrees.flag").unlink()
+        except OSError:
+            pass
+        print("Entrees reprises (si les ordres demo sont actives).")
+        return 0
     if "--bilan" in a:
         sys.path.insert(0, str(RACINE))
         import cvd_m3_bilan
