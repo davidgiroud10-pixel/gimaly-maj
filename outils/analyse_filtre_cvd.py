@@ -9,7 +9,9 @@ DEFINITIONS FIXEES D'AVANCE : 2 tests (M5-EMA9, M15-EMA9), ecart R moyen « AVEC
 Les EMA 5 et 14 sont affichees a titre INDICATIF seulement (pas de conclusion). Un test n'est fait que si chaque groupe compte >= 30 trades.
 HYPOTHESE A VERIFIER : l'heure de la ligne de trades_bot.csv est celle de l'ouverture du trade (le script affiche un exemple pour controle).
 Un resultat « non significatif » ne veut pas dire « inutile » : avec peu de trades on ne peut pas trancher. Aucune garantie de gain.
-Usage (dossier gimaly) : .\.venv\Scripts\python.exe analyse_filtre_cvd.py [JJ/MM/AAAA depuis]"""
+OPTION --fantomes : ajoute le meme test sur les signaux REFUSES suivis en fantome (trades_refuses.csv : entree, stop, objectif simules, SANS spread ; un seul
+signal par minute et par sens). Les 2 groupes (reels, fantomes) sont testes separement, jamais melanges : 4 tests, seuil p < 0,0125 (0,05/4).
+Usage (dossier gimaly) : .\.venv\Scripts\python.exe analyse_filtre_cvd.py [JJ/MM/AAAA depuis] [--fantomes]"""
 import bisect
 import csv
 import random
@@ -24,6 +26,7 @@ EMAS = (5, 9, 14)
 PRINCIPAL = 9
 MIN_GROUPE = 30
 SEUIL = 0.025
+SEUIL_FANTOMES = 0.0125
 
 
 def nombre(x):
@@ -76,11 +79,14 @@ def etat_cvd(flux, t, duree, n):
     return 1 if cvd[k] > ema else -1 if cvd[k] < ema else 0
 
 
-def lire_trades(depuis):
-    out = []
-    with open(DOSSIER / "trades_bot.csv", newline="", encoding="utf-8-sig") as f:
+def lire_trades(depuis, fantomes=False):
+    out, vus = [], set()
+    with open(DOSSIER / ("trades_refuses.csv" if fantomes else "trades_bot.csv"), newline="", encoding="utf-8-sig") as f:
         for l in csv.DictReader(f, delimiter=";"):
-            if (l.get("resultat") or "").strip() in ("", "ouvert"):
+            if fantomes:
+                if (l.get("issue") or "").strip() in ("", "en cours", "ouvert"):
+                    continue
+            elif (l.get("resultat") or "").strip() in ("", "ouvert"):
                 continue
             sens = (l.get("sens") or "").strip()
             r = nombre(l.get("R"))
@@ -90,6 +96,10 @@ def lire_trades(depuis):
                 t = datetime.strptime(f"{l['date'].strip()} {l['heure'].strip()}", "%d/%m/%Y %H:%M:%S")
             except (ValueError, KeyError):
                 continue
+            cle = (t.replace(second=0), sens)
+            if fantomes and cle in vus:
+                continue
+            vus.add(cle)
             if t >= depuis:
                 out.append((t, sens, r))
     return out
@@ -120,52 +130,61 @@ def bootstrap(avec, contre, essais=4000):
     return ecart, lo, hi, p
 
 
+def analyser(titre, trades, flux, seuil):
+    trades = [t for t in trades if flux[0][0] <= t[0].timestamp() <= flux[0][-1] + 120]
+    print(f"=== {titre} : {len(trades)} signaux couverts par ce CVD ===")
+    if trades:
+        t, s, r = trades[0]
+        print(f"Controle : 1er lu = {t:%d/%m/%Y %H:%M:%S} {s} R={r:+.2f}  (doit etre l'heure d'OUVERTURE / du signal)")
+    if len(trades) < 2 * MIN_GROUPE:
+        print("Trop peu pour comparer (il en faut au moins 60). Aucune conclusion possible.\n")
+        return
+    base = statistics.mean(r for _, _, r in trades)
+    print(f"Tous : R moyen {base:+.3f}, taux de reussite {100 * sum(1 for *_, r in trades if r > 0) / len(trades):.0f} %")
+    for nom, duree in TF:
+        for n in EMAS:
+            avec, contre = [], []
+            for t, sens, r in trades:
+                e = etat_cvd(flux, t.timestamp(), duree, n)
+                if e in (None, 0):
+                    continue
+                (avec if (e == 1) == (sens == "achat") else contre).append((t.date(), r))
+            tag = "TEST" if n == PRINCIPAL else "indicatif"
+            if len(avec) < MIN_GROUPE or len(contre) < MIN_GROUPE:
+                print(f"{nom} EMA{n} [{tag}] : AVEC {len(avec)} / CONTRE {len(contre)} : trop peu (min {MIN_GROUPE}).")
+                continue
+            ecart, lo, hi, p = bootstrap(avec, contre)
+            ma, mc = statistics.mean(r for _, r in avec), statistics.mean(r for _, r in contre)
+            verdict = ""
+            if n == PRINCIPAL and p is not None:
+                verdict = "  -> SIGNIFICATIF" if p < seuil else "  -> non significatif"
+            ptxt = f"p={p:.3f}, IC95 [{lo:+.2f} ; {hi:+.2f}]" if p is not None else "p n/d"
+            print(f"{nom} EMA{n} [{tag}] : AVEC {len(avec)} R moyen {ma:+.3f} | CONTRE {len(contre)} R moyen {mc:+.3f} | ecart {ecart:+.3f} R ({ptxt}){verdict}")
+    print()
+
+
 def main(argv):
+    argv = list(argv)
+    fant = "--fantomes" in argv
+    argv = [a for a in argv if a != "--fantomes"]
     depuis = datetime(2026, 1, 1)
     if argv:
         depuis = datetime.strptime(argv[0], "%d/%m/%Y")
     try:
-        flux, trades = lire_flux(), lire_trades(depuis)
+        flux = lire_flux()
+        reels = lire_trades(depuis)
+        fantomes = lire_trades(depuis, True) if fant else None
     except OSError as e:
         print(f"Fichier introuvable ({e}). Lance depuis ton PC GIMALY.")
         return 1
     if not flux[0]:
         print("flux_minute.csv vide.")
         return 1
-    print(f"CVD disponible du {datetime.fromtimestamp(flux[0][0]):%d/%m/%Y %H:%M} au {datetime.fromtimestamp(flux[0][-1]):%d/%m/%Y %H:%M}")
-    trades = [t for t in trades if flux[0][0] <= t[0].timestamp() <= flux[0][-1] + 120]
-    print(f"{len(trades)} trades termines couverts par ce CVD (depuis {depuis:%d/%m/%Y}).")
-    if trades:
-        t, s, r = trades[0]
-        print(f"Controle : 1er trade lu = {t:%d/%m/%Y %H:%M:%S} {s} R={r:+.2f}  (doit etre l'heure d'OUVERTURE du trade)")
-    if len(trades) < 2 * MIN_GROUPE:
-        print("Trop peu de trades pour comparer (il en faut au moins 60). Aucune conclusion possible pour l'instant.")
-        return 0
-    base = statistics.mean(r for _, _, r in trades)
-    print(f"Tous ces trades : R moyen {base:+.3f}, taux de reussite {100 * sum(1 for *_, r in trades if r > 0) / len(trades):.0f} %\n")
-    for nom, duree in TF:
-        for n in EMAS:
-            avec, contre, mixte = [], [], 0
-            for t, sens, r in trades:
-                e = etat_cvd(flux, t.timestamp(), duree, n)
-                if e is None:
-                    continue
-                if e == 0:
-                    mixte += 1
-                    continue
-                (avec if (e == 1) == (sens == "achat") else contre).append((t.date(), r))
-            tag = "TEST" if n == PRINCIPAL else "indicatif"
-            if len(avec) < MIN_GROUPE or len(contre) < MIN_GROUPE:
-                print(f"{nom} EMA{n} [{tag}] : AVEC {len(avec)} / CONTRE {len(contre)} trades : trop peu (min {MIN_GROUPE}).")
-                continue
-            ecart, lo, hi, p = bootstrap(avec, contre)
-            ma, mc = statistics.mean(r for _, r in avec), statistics.mean(r for _, r in contre)
-            verdict = ""
-            if n == PRINCIPAL and p is not None:
-                verdict = "  -> SIGNIFICATIF" if p < SEUIL else "  -> non significatif"
-            ptxt = f"p={p:.3f}, IC95 [{lo:+.2f} ; {hi:+.2f}]" if p is not None else "p n/d"
-            print(f"{nom} EMA{n} [{tag}] : AVEC {len(avec)} trades R moyen {ma:+.3f} | CONTRE {len(contre)} trades R moyen {mc:+.3f} | ecart {ecart:+.3f} R ({ptxt}){verdict}")
-    print("\nLecture : un filtre n'aide que si AVEC > CONTRE de facon significative ET stable. Ces trades sont peu nombreux : prudence.")
+    print(f"CVD disponible du {datetime.fromtimestamp(flux[0][0]):%d/%m/%Y %H:%M} au {datetime.fromtimestamp(flux[0][-1]):%d/%m/%Y %H:%M}\n")
+    analyser("TRADES REELS", reels, flux, SEUIL_FANTOMES if fant else SEUIL)
+    if fant:
+        analyser("FANTOMES (signaux refuses, sans spread)", fantomes, flux, SEUIL_FANTOMES)
+    print("Lecture : un filtre n'aide que si AVEC > CONTRE de facon significative ET stable. Prudence avec peu de trades ; les fantomes ne prouvent rien sur les vrais gains.")
     return 0
 
 
